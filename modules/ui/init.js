@@ -10,6 +10,7 @@ import { behaviorHash } from '../behavior';
 import { modeBrowse } from '../modes/browse';
 import { svgDefs, svgIcon } from '../svg';
 import { utilDetect } from '../util/detect';
+import { initVueApp, destroyVueApp } from './vue/app';
 import { utilGetDimensions } from '../util/dimensions';
 
 import { uiAccount } from './account';
@@ -508,7 +509,13 @@ export function uiInit(context) {
 
         _loadPromise = null;
 
+        // Destroy Vue app before clearing DOM (clean unmount)
+        destroyVueApp();
+
         context.container().selectAll('*').remove();
+
+        // Re-create Vue app on the now-empty container
+        initVueApp(context, context.container().node());
 
         ui.ensureLoaded();
     };

@@ -1,16 +1,16 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, loadEnv } from 'vite';
 import vue from '@vitejs/plugin-vue';
-import { loadEnv } from 'vite';
-import { dirname } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
-  // Load .env files (same as vite.config.js)
+  // Load .env files
   const env = loadEnv(mode, __dirname, 'ID_');
 
   // Build the define map matching the old esbuild ENV__* convention
+  // These replace global constants at compile time
   const defines = {
     ENV__ID_PRESETS_CDN_URL: JSON.stringify(env.ID_PRESETS_CDN_URL || null),
     ENV__ID_OCI_CDN_URL: JSON.stringify(env.ID_OCI_CDN_URL || null),
@@ -26,14 +26,47 @@ export default defineConfig(({ mode }) => {
   };
 
   return {
+    // Use relative paths in production so iD can be deployed under any subdirectory
+    base: './',
+
     plugins: [vue()],
+
     define: defines,
-    test: {
-      css: true,
-      environment: 'jsdom',
-      globals: true,
-      include: ['test/spec/**/*.{js,ts}'],
-      setupFiles: ['./test/spec_helpers.ts'],
+
+    // Dev server configuration (replaces scripts/server.js)
+    server: {
+      port: 8080,
+      open: false,
+      headers: {
+        'Cache-Control': 'no-cache',
+      },
+    },
+
+    // Build configuration (replaces config/esbuild.config.js)
+    build: {
+      outDir: 'dist',
+      sourcemap: true,
+      // Keep the dist directory (it has committed static files like locales, images)
+      emptyOutDir: false,
+      rollupOptions: {
+        input: resolve(__dirname, 'index.html'),
+        output: {
+          // Match the old naming convention
+          entryFileNames: 'iD.min.js',
+          chunkFileNames: 'chunks/[name]-[hash].js',
+          assetFileNames: (assetInfo) => {
+            if (assetInfo.name && assetInfo.name.endsWith('.css')) {
+              return 'iD.css';
+            }
+            return 'assets/[name]-[hash][extname]';
+          },
+        },
+      },
+    },
+
+    // Resolve configuration
+    resolve: {
+      extensions: ['.js', '.ts', '.json', '.vue'],
     },
   };
 });

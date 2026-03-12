@@ -5,7 +5,6 @@ import sinonChai from 'sinon-chai';
 import 'happen';
 import fetchMock from 'fetch-mock';
 import 'fake-indexeddb/auto';
-import envs from '../config/envs.js';
 
 use(sinonChai);
 
@@ -17,11 +16,6 @@ global.after = afterEach;
 global.fetchMock = fetchMock;
 global.sinon = sinon;
 global.VITEST = true;
-
-// create global variables for this data, to match what the esbuild config does
-for (const [key, value] of Object.entries(envs)) {
-  Reflect.set(global, key, JSON.parse(value));
-}
 
 // the 'happen' library explicitly references `window` when creating an event,
 // but we need to use jsdom's window, so we have to patch initEvent.
@@ -53,6 +47,7 @@ iD.fileFetcher.assetPath('../dist/');
 const cached: any = iD.fileFetcher.cache();
 
 // Initializing `coreContext` will try loading the locale data and English locale strings:
+cached.languages = {};
 cached.locales = { en: { rtl: false, pct: 1 } };
 cached.locales_index_general = { en: { rtl: false, pct: 1 } };
 cached.locales_index_tagging = { en: { rtl: false, pct: 1 } };
@@ -132,6 +127,11 @@ cached.preset_presets = {};
 cached.deprecated = [];
 // Initializing `coreContext` initializes `_uploader`, which tries loading:
 cached.discarded = {};
+
+// Reset the singleton localizer's cached load promise so ensureLoaded() re-runs
+// with the cached data above (the initial load during id.js import may have failed
+// because the cached data wasn't set up yet).
+iD.localizer.preferredLocaleCodes([]);
 
 // @ts-expect-error
 window.d3 = iD.d3; // Remove this if we can avoid exporting all of d3.js
