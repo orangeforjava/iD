@@ -41,7 +41,7 @@ iD 的 UI 是一棵由 d3 管理的 DOM 树。迁移采用**逐组件、自底�
 | `modules/ui/vue/VueRoot.vue` | 根组件：通过 `<Teleport>` 渲染所有注册的 Vue 组件 |
 | `modules/ui/vue/bridge.js` | d3/Vue 桥接：`mountVueComponent()` + `contextKey` |
 | `modules/ui/vue/useContext.js` | Vue composable，用于访问 iD context |
-| `modules/ui/vue/*.vue` | Vue 单文件组件 |
+| `modules/ui/vue/*.vue` | Vue 单文件组件：`ZoomControls.vue`, `ScaleBar.vue`, `VersionBadge.vue`, `GeolocateButton.vue`, `ZoomToSelectionButton.vue`, `AttributionPanel.vue`, `StatusBar.vue` |
 | `modules/ui/*.js` | 包装文件，导出 d3 兼容函数 |
 | `postcss.config.js` | PostCSS 配置（将 node_modules 排除在 `.ideditor` 前缀之外） |
 | `modules/id.js` | 初始化 Vue app + Element Plus 组件 CSS 引入 |
@@ -324,11 +324,14 @@ Element Plus 组件的样式独立于 iD 的 CSS。PostCSS 的 `.ideditor` 前�
 | 优先级 | 组件 | 复杂度 | Element Plus 适配度 | 备注 |
 |--------|------|--------|---------------------|------|
 | 已完成 | `uiZoom` | 低 | 高（按钮、tooltip） | 参考实现 |
-| 高 | `uiVersion` | 极低 | 中（链接、徽章） | 极简，适合练手 |
+| 已完成 | `uiScale` | 低 | 低（SVG 自定义渲染） | 比例尺组件 |
+| 已完成 | `uiVersion` | 极低 | 中（链接、徽章） | 极简，显示版本号 |
+| 已完成 | `uiGeolocate` | 低 | 高（按钮、tooltip） | 定位按钮 |
+| 已完成 | `uiZoomToSelection` | 低 | 高（按钮、tooltip） | 缩放到选中对象 |
+| 已完成 | `uiAttribution` | 低 | 低（信息展示） | 底图/叠加层归属信息 |
+| 已完成 | `uiStatus` | 低 | 低（状态信息） | API 状态与重试入口 |
 | 高 | `uiAccount` | 中 | 高（头像、按钮） | 登录状态、用户菜单 |
 | 中 | `uiFlash` | 中 | 极高（el-message） | 被多个组件依赖 |
-| 中 | `uiGeolocate` | 低 | 高（按钮、tooltip） | 类似 zoom |
-| 中 | `uiScale` | 低 | 低（自定义 SVG） | Element Plus 收益有限 |
 | 低 | `uiTopToolbar` | 高 | 中 | 含 5 个子工具的容器 |
 | 低 | `uiSidebar` | 极高 | 中 | 核心编排器 |
 

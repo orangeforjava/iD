@@ -40,5 +40,7 @@ export function useContext() {
     keybinding: () => context.keybinding(),
     /** Shorthand for context.ui() */
     ui: () => context.ui(),
+    /** Direct reference to projection (may change at runtime) */
+    projection: context.projection,
   };
 }
