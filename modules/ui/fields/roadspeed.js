@@ -1,11 +1,14 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
 import { select as d3_select } from 'd3-selection';
 import * as countryCoder from '@rapideditor/country-coder';
+import { reactive } from 'vue';
 
 import { uiCombobox } from '../combobox';
 import { t, localizer } from '../../core/localizer';
 import { utilGetSetValue, utilNoAuto, utilRebind, utilTotalExtent } from '../../util';
 import { likelyRawNumberFormat } from './input';
+import { mountVueComponent } from '../vue/bridge';
+import RoadspeedFieldInput from '../vue/RoadspeedFieldInput.vue';
 
 
 export function uiFieldRoadspeed(field, context) {
@@ -15,104 +18,94 @@ export function uiFieldRoadspeed(field, context) {
     var _entityIDs = [];
     var _tags;
     var _isImperial;
+    var _refs = null;
+    var _renderVersion = 0;
     var formatFloat = localizer.floatFormatter(localizer.languageCode());
     var parseLocaleFloat = localizer.floatParser(localizer.languageCode());
 
     var speedCombo = uiCombobox(context, 'roadspeed');
-    var unitCombo = uiCombobox(context, 'roadspeed-unit')
-            .data(['km/h', 'mph'].map(comboValues));
+    var unitCombo = uiCombobox(context, 'roadspeed-unit').data(['km/h', 'mph'].map(comboValues));
 
     var metricValues = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
     var imperialValues = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80];
 
+    var shellState = reactive({
+        domId: field.domId,
+        unitLabel: t('inspector.speed_unit'),
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+            if (_refs?.speed) {
+                input = d3_select(_refs.speed).call(utilNoAuto).call(speedCombo);
+            }
+            if (_refs?.unit) {
+                unitInput = d3_select(_refs.unit).call(unitCombo);
+            }
+        }
+    });
+    var renderShell = mountVueComponent(RoadspeedFieldInput, context, { state: shellState });
 
     function roadspeed(selection) {
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
 
-        var wrap = selection.selectAll('.form-field-input-wrap')
-            .data([0]);
+        if (!_refs) {
+            var wrap = selection.selectAll('.form-field-input-wrap').data([0]);
+            wrap = wrap.enter().append('div').attr('class', 'form-field-input-wrap form-field-input-' + field.type).merge(wrap);
 
-        wrap = wrap.enter()
-            .append('div')
-            .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
-            .merge(wrap);
+            input = wrap.selectAll('input.roadspeed-number').data([0]);
+            input = input.enter().append('input')
+                .attr('type', 'text')
+                .attr('class', 'roadspeed-number')
+                .attr('id', field.domId)
+                .call(utilNoAuto)
+                .call(speedCombo)
+                .merge(input);
 
+            unitInput = wrap.selectAll('input.roadspeed-unit').data([0]);
+            unitInput = unitInput.enter().append('input')
+                .attr('type', 'text')
+                .attr('class', 'roadspeed-unit')
+                .attr('aria-label', t('inspector.speed_unit'))
+                .call(unitCombo)
+                .merge(unitInput);
+        }
 
-        input = wrap.selectAll('input.roadspeed-number')
-            .data([0]);
-
-        input = input.enter()
-            .append('input')
-            .attr('type', 'text')
-            .attr('class', 'roadspeed-number')
-            .attr('id', field.domId)
-            .call(utilNoAuto)
-            .call(speedCombo)
-            .merge(input);
-
-        input
-            .on('change', change)
-            .on('blur', change);
+        input.on('change', change).on('blur', change);
 
         var loc = combinedEntityExtent().center();
         _isImperial = countryCoder.roadSpeedUnit(loc) === 'mph';
 
-        unitInput = wrap.selectAll('input.roadspeed-unit')
-            .data([0]);
-
-        unitInput = unitInput.enter()
-            .append('input')
-            .attr('type', 'text')
-            .attr('class', 'roadspeed-unit')
-            .attr('aria-label', t('inspector.speed_unit'))
-            .call(unitCombo)
-            .merge(unitInput);
-
-        unitInput
-            .on('blur', changeUnits)
-            .on('change', changeUnits);
-
+        unitInput.on('blur', changeUnits).on('change', changeUnits);
 
         function changeUnits() {
             var unit = utilGetSetValue(unitInput);
-            if (unit === 'km/h') {
-                _isImperial = false;
-            } else if (unit === 'mph') {
-                _isImperial = true;
-            }
+            if (unit === 'km/h') _isImperial = false;
+            else if (unit === 'mph') _isImperial = true;
             utilGetSetValue(unitInput, _isImperial ? 'mph' : 'km/h');
             setUnitSuggestions();
             change();
         }
     }
 
-
     function setUnitSuggestions() {
         speedCombo.data((_isImperial ? imperialValues : metricValues).map(comboValues));
         utilGetSetValue(unitInput, _isImperial ? 'mph' : 'km/h');
     }
 
-
     function comboValues(d) {
-        return {
-            value: formatFloat(d),
-            title: formatFloat(d)
-        };
+        return { value: formatFloat(d), title: formatFloat(d) };
     }
-
 
     function change() {
         var tag = {};
         var value = utilGetSetValue(input).trim();
-
-        // don't override multiple values with blank string
         if (!value && Array.isArray(_tags[field.key])) return;
 
         if (!value) {
             tag[field.key] = undefined;
         } else {
-            var rawValue = likelyRawNumberFormat.test(value)
-                ? parseFloat(value)
-                : parseLocaleFloat(value);
+            var rawValue = likelyRawNumberFormat.test(value) ? parseFloat(value) : parseLocaleFloat(value);
             if (isNaN(rawValue)) rawValue = value;
             if (isNaN(rawValue) || !_isImperial) {
                 tag[field.key] = context.cleanTagValue(rawValue);
@@ -120,10 +113,8 @@ export function uiFieldRoadspeed(field, context) {
                 tag[field.key] = context.cleanTagValue(rawValue + ' mph');
             }
         }
-
         dispatch.call('change', this, tag);
     }
-
 
     roadspeed.tags = function(tags) {
         _tags = tags;
@@ -140,11 +131,8 @@ export function uiFieldRoadspeed(field, context) {
             }
 
             value = parseInt(value, 10);
-            if (isNaN(value)) {
-                value = rawValue;
-            } else {
-                value = formatFloat(value);
-            }
+            if (isNaN(value)) value = rawValue;
+            else value = formatFloat(value);
         }
 
         setUnitSuggestions();
@@ -155,21 +143,19 @@ export function uiFieldRoadspeed(field, context) {
             .classed('mixed', isMixed);
     };
 
-
     roadspeed.focus = function() {
         input.node().focus();
     };
-
 
     roadspeed.entityIDs = function(val) {
         _entityIDs = val;
     };
 
+    roadspeed.unmount = renderShell.unmount;
 
     function combinedEntityExtent() {
         return _entityIDs && _entityIDs.length && utilTotalExtent(_entityIDs, context.graph());
     }
-
 
     return utilRebind(roadspeed, dispatch, 'on');
 }

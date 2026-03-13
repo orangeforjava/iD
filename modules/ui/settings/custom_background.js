@@ -1,10 +1,14 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
 import { marked } from 'marked';
+import { reactive } from 'vue';
 
 import { prefs } from '../../core/preferences';
 import { t } from '../../core/localizer';
 import { uiConfirm } from '../confirm';
+import { uiModal } from '../modal';
 import { utilNoAuto, utilRebind } from '../../util';
+import { isVueAppInitialized, registerComponent, unregisterComponent } from '../vue/app';
+import CustomBackgroundDialog from '../vue/CustomBackgroundDialog.vue';
 
 
 export function uiSettingsCustomBackground() {
@@ -20,6 +24,64 @@ export function uiSettingsCustomBackground() {
         };
 
         var example = 'https://tile.openstreetmap.org/{zoom}/{x}/{y}.png';
+
+        if (isVueAppInitialized()) {
+            var modalSelection = uiModal(selection);
+            modalSelection.classed('settings-modal settings-custom-background', true);
+            modalSelection.select('.modal').classed('modal-alert', true);
+
+            var instructions =
+                `${t.html('settings.custom_background.instructions.info')}
+
+#### ${t.html('settings.custom_background.instructions.wms.tokens_label')}
+* ${t.html('settings.custom_background.instructions.wms.tokens.proj')}
+* ${t.html('settings.custom_background.instructions.wms.tokens.wkid')}
+* ${t.html('settings.custom_background.instructions.wms.tokens.dimensions')}
+* ${t.html('settings.custom_background.instructions.wms.tokens.bbox')}
+
+#### ${t.html('settings.custom_background.instructions.tms.tokens_label')}
+* ${t.html('settings.custom_background.instructions.tms.tokens.xyz')}
+* ${t.html('settings.custom_background.instructions.tms.tokens.flipped_y')}
+* ${t.html('settings.custom_background.instructions.tms.tokens.switch')}
+* ${t.html('settings.custom_background.instructions.tms.tokens.quadtile')}
+* ${t.html('settings.custom_background.instructions.tms.tokens.scale_factor')}
+
+#### ${t.html('settings.custom_background.instructions.example')}
+
+0${example}0`;
+
+            var registrationId = null;
+            var state = reactive({
+                template: _currSettings.template,
+                instructionsHtml: marked(instructions.replace(/\u00060/g, '`')),
+                onInput: function(e) {
+                    state.template = e.target.value;
+                },
+                onCancel: function() {
+                    prefs('background-custom-template', _origSettings.template);
+                    modalSelection.close();
+                },
+                onSave: function() {
+                    _currSettings.template = state.template;
+                    prefs('background-custom-template', _currSettings.template);
+                    modalSelection.close();
+                    dispatch.call('change', this, _currSettings);
+                }
+            });
+
+            registrationId = registerComponent(CustomBackgroundDialog, modalSelection.select('.content').node(), { state: state });
+
+            var remove = modalSelection.remove;
+            modalSelection.remove = function() {
+                if (registrationId) {
+                    unregisterComponent(registrationId);
+                    registrationId = null;
+                }
+                return remove.call(modalSelection);
+            };
+            return;
+        }
+
         var modal = uiConfirm(selection).okButton();
 
         modal

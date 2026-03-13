@@ -45,7 +45,7 @@ export function uiEditMenu(context) {
       return op.disabled();
     },
     tooltipText: function(op) {
-      return op.tooltip ? op.tooltip() : '';
+      return op.tooltip ? resolveTooltipText(op.tooltip()) : '';
     },
     handlePointerUp: function(d3_event) {
       state.lastPointerUpType = d3_event.pointerType;
@@ -234,6 +234,15 @@ export function uiEditMenu(context) {
   };
 
   return utilRebind(editMenu, dispatch, 'on');
+}
+
+
+function resolveTooltipText(val) {
+  if (typeof val !== 'function') return val || '';
+
+  var div = document.createElement('div');
+  d3_select(div).call(val);
+  return div.textContent || '';
 }
 
 

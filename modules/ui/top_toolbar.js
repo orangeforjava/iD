@@ -1,94 +1,78 @@
-import {
-    select as d3_select
-} from 'd3-selection';
-
 import _debounce from 'lodash-es/debounce';
+import { reactive } from 'vue';
+
 import { uiToolDrawModes, uiToolNotes, uiToolSave, uiToolSidebarToggle, uiToolUndoRedo } from './tools';
+import { mountVueComponent } from './vue/bridge';
+import TopToolbarShell from './vue/TopToolbarShell.vue';
 
 
 export function uiTopToolbar(context) {
+  var sidebarToggle = uiToolSidebarToggle(context);
+  var modes = uiToolDrawModes(context);
+  var notes = uiToolNotes(context);
+  var undoRedo = uiToolUndoRedo(context);
+  var save = uiToolSave(context);
 
-    var sidebarToggle = uiToolSidebarToggle(context),
-        modes = uiToolDrawModes(context),
-        notes = uiToolNotes(context),
-        undoRedo = uiToolUndoRedo(context),
-        save = uiToolSave(context);
+  var state = reactive({
+    tools: [],
+    barSelection: null
+  });
+  var render = mountVueComponent(TopToolbarShell, context, { state: state });
 
-    function notesEnabled() {
-        var noteLayer = context.layers().layer('notes');
-        return noteLayer && noteLayer.enabled();
+  function notesEnabled() {
+    var noteLayer = context.layers().layer('notes');
+    return noteLayer && noteLayer.enabled();
+  }
+
+  function buildTools() {
+    var tools = [sidebarToggle, 'spacer', modes];
+    tools.push('spacer');
+    if (notesEnabled()) {
+      tools = tools.concat([notes, 'spacer']);
     }
+    tools = tools.concat([undoRedo, save]);
 
-    function topToolbar(bar) {
+    return tools.map(function(d, i) {
+      if (d === 'spacer') {
+        return {
+          key: 'spacer-' + i,
+          type: 'spacer',
+          classes: 'toolbar-item spacer'
+        };
+      }
 
-        bar.on('wheel.topToolbar', function(d3_event) {
-            if (!d3_event.deltaX) {
-                // translate vertical scrolling into horizontal scrolling in case
-                // the user doesn't have an input device that can scroll horizontally
-                bar.node().scrollLeft += d3_event.deltaY;
-            }
-        });
+      var classes = 'toolbar-item ' + (d.id || '').replaceAll('_', '-');
+      if (d.klass) classes += ' ' + d.klass;
+      return {
+        key: d.id,
+        type: 'tool',
+        classes: classes,
+        tool: d
+      };
+    });
+  }
 
-        var debouncedUpdate = _debounce(update, 500, { leading: true, trailing: true });
-        context.layers()
-            .on('change.topToolbar', debouncedUpdate);
+  function topToolbar(bar) {
+    bar.on('wheel.topToolbar', function(d3_event) {
+      if (!d3_event.deltaX) {
+        bar.node().scrollLeft += d3_event.deltaY;
+      }
+    });
 
-        update();
+    state.barSelection = bar;
 
-        function update() {
+    var debouncedUpdate = _debounce(update, 500, { leading: true, trailing: true });
+    context.layers().on('change.topToolbar', debouncedUpdate);
 
-            var tools = [
-                sidebarToggle,
-                'spacer',
-                modes
-            ];
+    update();
+    render(bar);
 
-            tools.push('spacer');
-
-            if (notesEnabled()) {
-                tools = tools.concat([notes, 'spacer']);
-            }
-
-            tools = tools.concat([undoRedo, save]);
-
-            var toolbarItems = bar.selectAll('.toolbar-item')
-                .data(tools, function(d) {
-                    return d.id || d;
-                });
-
-            toolbarItems.exit()
-                .each(function(d) {
-                    if (d.uninstall) {
-                        d.uninstall();
-                    }
-                })
-                .remove();
-
-            var itemsEnter = toolbarItems
-                .enter()
-                .append('div')
-                .attr('class', function(d) {
-                    var classes = 'toolbar-item ' + (d.id || d).replaceAll('_', '-');
-                    if (d.klass) classes += ' ' + d.klass;
-                    return classes;
-                });
-
-            var actionableItems = itemsEnter.filter(function(d) { return d !== 'spacer'; });
-
-            actionableItems
-                .append('div')
-                .attr('class', 'item-content')
-                .each(function(d) {
-                    d3_select(this).call(d.render, bar);
-                });
-
-            actionableItems
-                .append('div')
-                .attr('class', 'item-label')
-                .each(function(d) { d.label(d3_select(this)); });
-        }
-
+    function update() {
+      state.tools = buildTools();
     }
+  }
 
-    return topToolbar;
+  topToolbar.unmount = render.unmount;
+
+  return topToolbar;
 }

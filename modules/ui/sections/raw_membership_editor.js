@@ -20,6 +20,8 @@ import { utilArrayGroupBy, utilArrayIntersection } from '../../util/array';
 import { utilDisplayName, utilNoAuto, utilHighlightEntities, utilUniqueDomId } from '../../util';
 import { prefs } from '../../core';
 import { idMatch } from '../feature_list';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import MembershipEditorShell from '../vue/MembershipEditorShell.vue';
 
 
 export function uiSectionRawMembershipEditor(context) {
@@ -50,8 +52,16 @@ export function uiSectionRawMembershipEditor(context) {
     var _entityIDs = [];
     var _showBlank;
     var _maxMemberships = 1000;
+    var _registrationId;
+    var _refs;
+    var _renderVersion = 0;
     /** @type {Set<string>} relations that were added after this panel was opened */
     const recentlyAdded = new Set();
+
+    var shellState = {
+        renderVersion: 0,
+        setRefs: function(refs) { _refs = refs; }
+    };
 
     function getSharedParentRelations() {
         var parents = [];
@@ -357,10 +367,16 @@ export function uiSectionRawMembershipEditor(context) {
     }
 
     function renderDisclosureContent(selection) {
+        if (isVueAppInitialized()) {
+            if (_registrationId) unregisterComponent(_registrationId);
+            _refs = null;
+            shellState.renderVersion = ++_renderVersion;
+            _registrationId = registerComponent(MembershipEditorShell, selection.node(), { state: shellState });
+        }
 
         var memberships = getMemberships();
 
-        var list = selection.selectAll('.member-list')
+        var list = (_refs ? d3_select(_refs.list) : selection.selectAll('.member-list'))
             .data([0]);
 
         list = list.enter()
@@ -588,7 +604,7 @@ export function uiSectionRawMembershipEditor(context) {
 
 
         // Container for the Add button
-        var addRow = selection.selectAll('.add-row')
+        var addRow = (_refs ? d3_select(_refs.addRow) : selection.selectAll('.add-row'))
             .data([0]);
 
         // enter

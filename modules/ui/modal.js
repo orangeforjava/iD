@@ -1,13 +1,14 @@
+import { createApp } from 'vue';
 import { select as d3_select } from 'd3-selection';
 
 import { t } from './../core/localizer';
-import { svgIcon } from '../svg/icon';
 import { utilKeybinding } from '../util';
+import ModalFrame from './vue/ModalFrame.vue';
 
 
 export function uiModal(selection, blocking) {
   let keybinding = utilKeybinding('modal');
-  let previous = selection.select('div.modal');
+  let previous = selection.select('div.shaded');
   let animate = previous.empty();
 
   previous.transition()
@@ -20,75 +21,11 @@ export function uiModal(selection, blocking) {
     .attr('class', 'shaded')
     .style('opacity', 0);
 
-  shaded.close = () => {
-    shaded
-      .transition()
-      .duration(200)
-      .style('opacity',0)
-      .remove();
-
-    modal
-      .transition()
-      .duration(200)
-      .style('top','0px');
-
-    d3_select(document)
-      .call(keybinding.unbind);
-  };
-
-
-  let modal = shaded
-    .append('div')
-    .attr('class', 'modal fillL');
-
-  modal
-    .append('input')
-    .attr('class', 'keytrap keytrap-first')
-    .on('focus.keytrap', moveFocusToLast);
-
-  if (!blocking) {
-    shaded.on('click.remove-modal', (d3_event) => {
-      if (d3_event.target === this) {
-        shaded.close();
-      }
-    });
-
-    modal
-      .append('button')
-      .attr('class', 'close')
-      .attr('title', t('icons.close'))
-      .on('click', shaded.close)
-      .call(svgIcon('#iD-icon-close'));
-
-    keybinding
-      .on('⌫', shaded.close)
-      .on('⎋', shaded.close);
-
-    d3_select(document)
-      .call(keybinding);
-  }
-
-  modal
-    .append('div')
-    .attr('class', 'content');
-
-  modal
-    .append('input')
-    .attr('class', 'keytrap keytrap-last')
-    .on('focus.keytrap', moveFocusToFirst);
-
-  if (animate) {
-    shaded.transition().style('opacity', 1);
-  } else {
-    shaded.style('opacity', 1);
-  }
-
-  return shaded;
-
+  let app = null;
+  let modal = null;
 
   function moveFocusToFirst() {
     let node = modal
-      // there are additional rules about what's focusable, but this suits our purposes
       .select('a, button, input:not(.keytrap), select, textarea')
       .node();
 
@@ -110,4 +47,72 @@ export function uiModal(selection, blocking) {
       d3_select(this).node().blur();
     }
   }
+
+  function cleanupBindings() {
+    d3_select(document).call(keybinding.unbind);
+    if (app) {
+      app.unmount();
+      app = null;
+    }
+  }
+
+  shaded.close = () => {
+    shaded
+      .transition()
+      .duration(200)
+      .style('opacity', 0)
+      .on('end', function() {
+        cleanupBindings();
+        d3_select(this).remove();
+      });
+
+    if (modal) {
+      modal
+        .transition()
+        .duration(200)
+        .style('top', '0px');
+    }
+  };
+
+  app = createApp(ModalFrame, {
+    state: {
+      close: shaded.close,
+      moveFocusToFirst: moveFocusToFirst,
+      moveFocusToLast: moveFocusToLast
+    },
+    blocking: !!blocking,
+    closeTitle: t('icons.close')
+  });
+  app.mount(shaded.node());
+
+  modal = shaded.select('div.modal');
+
+  if (!blocking) {
+    shaded.on('click.remove-modal', function(d3_event) {
+      if (d3_event.target === this) {
+        shaded.close();
+      }
+    });
+
+    keybinding
+      .on('⌫', shaded.close)
+      .on('⎋', shaded.close);
+
+    d3_select(document)
+      .call(keybinding);
+  }
+
+  if (animate) {
+    shaded.transition().style('opacity', 1);
+  } else {
+    shaded.style('opacity', 1);
+  }
+
+  let remove = shaded.remove;
+  shaded.remove = function() {
+    cleanupBindings();
+    return remove.call(shaded);
+  };
+
+  return shaded;
 }

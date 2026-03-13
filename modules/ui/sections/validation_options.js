@@ -1,57 +1,44 @@
 import { prefs } from '../../core/preferences';
 import { t } from '../../core/localizer';
 import { uiSection } from '../section';
+import { reactive } from 'vue';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import ValidationOptionsSection from '../vue/ValidationOptionsSection.vue';
 
 export function uiSectionValidationOptions(context) {
+    var _registrationId;
+    var state = reactive({
+        options: [],
+        updateOption: updateOptionValue
+    });
 
     var section = uiSection('issues-options', context)
         .content(renderContent);
 
     function renderContent(selection) {
-
-        var container = selection.selectAll('.issues-options-container')
-            .data([0]);
-
-        container = container.enter()
-            .append('div')
-            .attr('class', 'issues-options-container')
-            .merge(container);
-
         var data = [
             { key: 'what', values: ['edited', 'all'] },
             { key: 'where', values: ['visible', 'all'] }
         ];
 
-        var options = container.selectAll('.issues-option')
-            .data(data, function(d) { return d.key; });
+        var opts = getOptions();
+        state.options = data.map(function(d) {
+            return {
+                key: d.key,
+                title: t.html('issues.options.' + d.key + '.title'),
+                values: d.values.map(function(val) {
+                    return {
+                        value: val,
+                        checked: opts[d.key] === val,
+                        label: t.html('issues.options.' + d.key + '.' + val)
+                    };
+                })
+            };
+        });
 
-        var optionsEnter = options.enter()
-            .append('div')
-            .attr('class', function(d) { return 'issues-option issues-option-' + d.key; });
-
-        optionsEnter
-            .append('div')
-            .attr('class', 'issues-option-title')
-            .html(function(d) { return t.html('issues.options.' + d.key + '.title'); });
-
-        var valuesEnter = optionsEnter.selectAll('label')
-            .data(function(d) {
-                return d.values.map(function(val) { return { value: val, key: d.key }; });
-            })
-            .enter()
-            .append('label');
-
-        valuesEnter
-            .append('input')
-            .attr('type', 'radio')
-            .attr('name', function(d) { return 'issues-option-' + d.key; })
-            .attr('value', function(d) { return d.value; })
-            .property('checked', function(d) { return getOptions()[d.key] === d.value; })
-            .on('change', function(d3_event, d) { updateOptionValue(d3_event, d.key, d.value); });
-
-        valuesEnter
-            .append('span')
-            .html(function(d) { return t.html('issues.options.' + d.key + '.' + d.value); });
+        if (!isVueAppInitialized()) return;
+        if (_registrationId) unregisterComponent(_registrationId);
+        _registrationId = registerComponent(ValidationOptionsSection, selection.node(), { state: state });
     }
 
     function getOptions() {

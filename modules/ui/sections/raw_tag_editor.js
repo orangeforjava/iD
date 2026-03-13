@@ -13,6 +13,8 @@ import { utilArrayDifference, utilArrayIdentical } from '../../util/array';
 import { utilGetSetValue, utilNoAuto, utilRebind, utilTagDiff } from '../../util';
 import { allowUpperCaseTagValues } from '../../osm/tags';
 import { fileFetcher } from '../../core';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import RawTagEditorShell from '../vue/RawTagEditorShell.vue';
 
 
 export function uiSectionRawTagEditor(id, context) {
@@ -48,12 +50,28 @@ export function uiSectionRawTagEditor(id, context) {
     var _tags;
     var _entityIDs;
     var _didInteract = false;
+    var _registrationId;
+    var _refs;
+    var _renderVersion = 0;
+
+    var shellState = {
+        tagView: _tagView,
+        renderVersion: 0,
+        setRefs: function(refs) { _refs = refs; }
+    };
 
     function interacted() {
         _didInteract = true;
     }
 
     function renderDisclosureContent(wrap) {
+        if (isVueAppInitialized()) {
+            if (_registrationId) unregisterComponent(_registrationId);
+            _refs = null;
+            shellState.tagView = _tagView;
+            shellState.renderVersion = ++_renderVersion;
+            _registrationId = registerComponent(RawTagEditorShell, wrap.node(), { state: shellState });
+        }
 
         // remove deleted keys
         _orderedKeys = _orderedKeys.filter(function(key) {
@@ -80,7 +98,7 @@ export function uiSectionRawTagEditor(id, context) {
 
 
         // View Options
-        var options = wrap.selectAll('.raw-tag-options')
+        var options = (_refs ? d3_select(_refs.options) : wrap.selectAll('.raw-tag-options'))
             .data([0]);
 
         options.exit()
@@ -126,19 +144,19 @@ export function uiSectionRawTagEditor(id, context) {
 
         // View as Text
         var textData = rowsToText(rowData);
-        var textarea = wrap.selectAll('.tag-text')
+        var textarea = (_refs ? d3_select(_refs.text) : wrap.selectAll('.tag-text'))
             .data([0]);
 
         textarea = textarea.enter()
             .append('textarea')
             .attr('class', 'tag-text' + (_tagView !== 'text' ? ' hide' : ''))
-            .call(utilNoAuto)
             .attr('placeholder', t('inspector.key_value'))
             .attr('spellcheck', 'false')
             .style('direction', 'ltr')
             .merge(textarea);
 
         textarea
+            .call(utilNoAuto)
             .call(utilGetSetValue, textData)
             .each(setTextareaHeight)
             .on('input', setTextareaHeight)
@@ -148,7 +166,7 @@ export function uiSectionRawTagEditor(id, context) {
 
 
         // View as List
-        var list = wrap.selectAll('.tag-list')
+        var list = (_refs ? d3_select(_refs.list) : wrap.selectAll('.tag-list'))
             .data([0]);
 
         list = list.enter()

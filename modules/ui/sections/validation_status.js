@@ -1,11 +1,21 @@
 import _debounce from 'lodash-es/debounce';
 
-import { svgIcon } from '../../svg/icon';
 import { prefs } from '../../core/preferences';
 import { t } from '../../core/localizer';
 import { uiSection } from '../section';
+import { reactive } from 'vue';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import ValidationStatusSection from '../vue/ValidationStatusSection.vue';
 
 export function uiSectionValidationStatus(context) {
+    var _registrationId;
+    var state = reactive({
+        message: '',
+        details: '',
+        ignoredCount: 0,
+        resetIgnoredLabel: '',
+        resetIgnored: function() { context.validator().resetIgnoredIssues(); }
+    });
 
     var section = uiSection('issues-status', context)
         .content(renderContent)
@@ -22,34 +32,11 @@ export function uiSectionValidationStatus(context) {
     }
 
     function renderContent(selection) {
-
-        var box = selection.selectAll('.box')
-            .data([0]);
-
-        var boxEnter = box.enter()
-            .append('div')
-            .attr('class', 'box');
-
-        boxEnter
-            .append('div')
-            .call(svgIcon('#iD-icon-apply', 'pre-text'));
-
-        var noIssuesMessage = boxEnter
-            .append('span');
-
-        noIssuesMessage
-            .append('strong')
-            .attr('class', 'message');
-
-        noIssuesMessage
-            .append('br');
-
-        noIssuesMessage
-            .append('span')
-            .attr('class', 'details');
-
         renderIgnoredIssuesReset(selection);
         setNoIssuesText(selection);
+        if (!isVueAppInitialized()) return;
+        if (_registrationId) unregisterComponent(_registrationId);
+        _registrationId = registerComponent(ValidationStatusSection, selection.node(), { state: state });
     }
 
     function renderIgnoredIssuesReset(selection) {
@@ -57,33 +44,8 @@ export function uiSectionValidationStatus(context) {
         var ignoredIssues = context.validator()
             .getIssues({ what: 'all', where: 'all', includeDisabledRules: true, includeIgnored: 'only' });
 
-        var resetIgnored = selection.selectAll('.reset-ignored')
-            .data(ignoredIssues.length ? [0] : []);
-
-        // exit
-        resetIgnored.exit()
-            .remove();
-
-        // enter
-        var resetIgnoredEnter = resetIgnored.enter()
-            .append('div')
-            .attr('class', 'reset-ignored section-footer');
-
-        resetIgnoredEnter
-            .append('a')
-            .attr('href', '#');
-
-        // update
-        resetIgnored = resetIgnored
-            .merge(resetIgnoredEnter);
-
-        resetIgnored.select('a')
-            .html(t.html('inspector.title_count', { title: { html: t.html('issues.reset_ignored') }, count: ignoredIssues.length }));
-
-        resetIgnored.on('click', function(d3_event) {
-            d3_event.preventDefault();
-            context.validator().resetIgnoredIssues();
-        });
+        state.ignoredCount = ignoredIssues.length;
+        state.resetIgnoredLabel = t('issues.reset_ignored') + ' (' + ignoredIssues.length + ')';
     }
 
     function setNoIssuesText(selection) {
@@ -95,18 +57,11 @@ export function uiSectionValidationStatus(context) {
                 var hiddenOpts = cases[type];
                 var hiddenIssues = context.validator().getIssues(hiddenOpts);
                 if (hiddenIssues.length) {
-                    selection.select('.box .details')
-                        .html('')
-                        .call(t.append(
-                            'issues.no_issues.hidden_issues.' + type,
-                            { count: hiddenIssues.length.toString() }
-                        ));
+                    state.details = t('issues.no_issues.hidden_issues.' + type, { count: hiddenIssues.length.toString() });
                     return;
                 }
             }
-            selection.select('.box .details')
-                .html('')
-                .call(t.append('issues.no_issues.hidden_issues.none'));
+            state.details = t('issues.no_issues.hidden_issues.none');
         }
 
         var messageType;
@@ -160,9 +115,7 @@ export function uiSectionValidationStatus(context) {
             messageType = 'no_edits';
         }
 
-        selection.select('.box .message')
-            .html('')
-            .call(t.append('issues.no_issues.message.' + messageType));
+        state.message = t('issues.no_issues.message.' + messageType);
 
     }
 

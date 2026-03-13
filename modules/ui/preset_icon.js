@@ -4,15 +4,40 @@ import { presetManager } from '../presets';
 import { prefs } from '../core/preferences';
 import { svgIcon, svgTagClasses } from '../svg';
 import { utilFunctor } from '../util';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from './vue/app';
+import PresetIconShell from './vue/PresetIconShell.vue';
 
 
 export function uiPresetIcon() {
   let _preset;
   let _geometry;
+  let _renderVersion = 0;
+  const _registrations = new WeakMap();
 
 
   function presetIcon(selection) {
-    selection.each(render);
+    selection.each(function() {
+      if (!isVueAppInitialized()) {
+        render.call(this);
+        return;
+      }
+
+      const target = this;
+      const existing = _registrations.get(target);
+      if (existing) {
+        unregisterComponent(existing);
+        _registrations.delete(target);
+      }
+
+      const state = {
+        renderVersion: ++_renderVersion,
+        renderInto: function(host) {
+          render.call(host);
+        }
+      };
+      const id = registerComponent(PresetIconShell, target, { state: state });
+      _registrations.set(target, id);
+    });
   }
 
 
@@ -434,6 +459,17 @@ export function uiPresetIcon() {
     if (!arguments.length) return _geometry;
     _geometry = utilFunctor(val);
     return presetIcon;
+  };
+
+  presetIcon.unmount = function(selection) {
+    if (!selection) return;
+    selection.each(function() {
+      const existing = _registrations.get(this);
+      if (existing) {
+        unregisterComponent(existing);
+        _registrations.delete(this);
+      }
+    });
   };
 
   return presetIcon;

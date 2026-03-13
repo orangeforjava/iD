@@ -11,6 +11,8 @@ import { uiFields } from './fields';
 import { LANGUAGE_SUFFIX_REGEX } from './fields/localized';
 import { uiTagReference } from './tag_reference';
 import { utilRebind, utilUniqueDomId } from '../util';
+import { mountVueComponent } from './vue/bridge';
+import FieldShell from './vue/FieldShell.vue';
 
 
 export function uiField(context, presetField, entityIDs, options) {
@@ -38,9 +40,29 @@ export function uiField(context, presetField, entityIDs, options) {
     }
 
     var _locked = false;
+    var _refs = null;
+    var _renderVersion = 0;
     var _lockedTip = uiTooltip()
         .title(() => t.append('inspector.lock.suggestion', { label: field.title }))
         .placement('bottom');
+
+    var shellState = {
+        safeid: field.safeid,
+        domId: field.domId,
+        wrap: options.wrap,
+        showRemove: options.wrap && options.remove,
+        showRevert: options.wrap && options.revert,
+        revertIcon: (localizer.textDirection() === 'rtl') ? '#iD-icon-redo' : '#iD-icon-undo',
+        locked: false,
+        modified: false,
+        present: false,
+        renderVersion: 0,
+        renderLabel: function(selection) { field.label()(selection); },
+        onRemove: remove,
+        onRevert: revert,
+        setRefs: function(refs) { _refs = refs; }
+    };
+    var renderShell = mountVueComponent(FieldShell, context, { state: shellState });
 
     // only create the fields that are actually being shown
     if (_show && !field.impl) {
@@ -138,138 +160,61 @@ export function uiField(context, presetField, entityIDs, options) {
 
 
     field.render = function(selection) {
-        var container = selection.selectAll('.form-field')
-            .data([field]);
+        shellState.locked = _locked;
+        shellState.modified = isModified();
+        shellState.present = tagsContainFieldKey();
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
 
-        // Enter
-        var enter = container.enter()
-            .append('div')
-            .attr('class', function(d) { return 'form-field form-field-' + d.safeid; })
-            .classed('nowrap', !options.wrap);
+        if (!field.impl) {
+            createField();
+        }
 
-        if (options.wrap) {
-            var labelEnter = enter
-                .append('label')
-                .attr('class', 'field-label')
-                .attr('for', function(d) { return d.domId; });
+        var reference, help;
 
-            var textEnter = labelEnter
-                .append('span')
-                .attr('class', 'label-text');
+        if (options.wrap && field.type === 'restrictions') {
+            help = uiFieldHelp(context, 'restrictions');
+        }
 
-            textEnter
-                .append('span')
-                .attr('class', 'label-textvalue')
-                .each(function(d) { d.label()(d3_select(this)); });
-
-            textEnter
-                .append('span')
-                .attr('class', 'label-textannotation');
-
-            if (options.remove) {
-                labelEnter
-                    .append('button')
-                    .attr('class', 'remove-icon')
-                    .attr('title', t('icons.remove'))
-                    .call(svgIcon('#iD-operation-delete'));
+        if (options.wrap && options.info) {
+            var referenceKey = field.key || '';
+            if (field.type === 'multiCombo') {
+                referenceKey = referenceKey.replace(/:$/, ':*');
             }
 
-            if (options.revert) {
-                labelEnter
-                    .append('button')
-                    .attr('class', 'modified-icon')
-                    .attr('title', t('icons.undo'))
-                    .call(svgIcon((localizer.textDirection() === 'rtl') ? '#iD-icon-redo' : '#iD-icon-undo'));
+            var referenceOptions = field.reference || {
+                key: referenceKey,
+                value: _tags[referenceKey]
+            };
+            reference = uiTagReference(referenceOptions, context);
+            if (_state === 'hover') {
+                reference.showing(false);
             }
         }
 
+        var implSelection = _refs ? d3_select(_refs.impl) : selection;
+        implSelection.call(field.impl);
 
-        // Update
-        container = container
-            .merge(enter);
+        if (help && _refs) {
+            d3_select(selection.node())
+                .call(help.body)
+                .select('.field-label')
+                .call(help.button);
+        }
 
-        container.select('.field-label > .remove-icon')  // propagate bound data
-            .on('click', remove);
+        if (reference && _refs) {
+            d3_select(selection.node())
+                .call(reference.body)
+                .select('.field-label')
+                .call(reference.button);
+        }
 
-        container.select('.field-label > .modified-icon')  // propagate bound data
-            .on('click', revert);
+        field.impl.tags(_tags);
 
-        container
-            .each(function(d) {
-                var selection = d3_select(this);
-
-                if (!d.impl) {
-                    createField();
-                }
-
-                var reference, help;
-
-                // instantiate field help
-                if (options.wrap && field.type === 'restrictions') {
-                    help = uiFieldHelp(context, 'restrictions');
-                }
-
-                // instantiate tag reference
-                if (options.wrap && options.info) {
-                    var referenceKey = d.key || '';
-                    if (d.type === 'multiCombo') {   // lookup key without the trailing ':'
-                        referenceKey = referenceKey.replace(/:$/, ':*');
-                    }
-
-                    var referenceOptions = d.reference || {
-                        key: referenceKey,
-                        value: _tags[referenceKey]
-                    };
-                    reference = uiTagReference(referenceOptions, context);
-                    if (_state === 'hover') {
-                        reference.showing(false);
-                    }
-                }
-
-                selection
-                    .call(d.impl);
-
-                // add field help components
-                if (help) {
-                    selection
-                        .call(help.body)
-                        .select('.field-label')
-                        .call(help.button);
-                }
-
-                // add tag reference components
-                if (reference) {
-                    selection
-                        .call(reference.body)
-                        .select('.field-label')
-                        .call(reference.button);
-                }
-
-                d.impl.tags(_tags);
-            });
-
-
-            container
-                .classed('locked', _locked)
-                .classed('modified', isModified())
-                .classed('present', tagsContainFieldKey());
-
-
-            // show a tip and lock icon if the field is locked
-            var annotation = container.selectAll('.field-label .label-textannotation');
-            var icon = annotation.selectAll('.icon')
-                .data(_locked ? [0]: []);
-
-            icon.exit()
-                .remove();
-
-            icon.enter()
-                .append('svg')
-                .attr('class', 'icon')
-                .append('use')
-                .attr('xlink:href', '#fas-lock');
-
-            container.call(_locked ? _lockedTip : _lockedTip.destroy);
+        if (_refs && _refs.lockIcon) {
+            var wrap = d3_select(selection.node());
+            wrap.call(_locked ? _lockedTip : _lockedTip.destroy);
+        }
     };
 
 

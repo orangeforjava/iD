@@ -41,7 +41,7 @@ iD 的 UI 是一棵由 d3 管理的 DOM 树。迁移采用**逐组件、自底�
 | `modules/ui/vue/VueRoot.vue` | 根组件：通过 `<Teleport>` 渲染所有注册的 Vue 组件 |
 | `modules/ui/vue/bridge.js` | d3/Vue 桥接：`mountVueComponent()` + `contextKey` |
 | `modules/ui/vue/useContext.js` | Vue composable，用于访问 iD context |
-| `modules/ui/vue/*.vue` | Vue 单文件组件：`ZoomControls.vue`, `ScaleBar.vue`, `VersionBadge.vue`, `GeolocateButton.vue`, `ZoomToSelectionButton.vue`, `AttributionPanel.vue`, `StatusBar.vue`, `NoticeBanner.vue`, `SpinnerIndicator.vue`, `FeatureInfoChip.vue`, `IssuesInfoChips.vue`, `ContributorsList.vue`, `SourceSwitchChip.vue`, `AccountLinks.vue`, `RestoreModal.vue`, `FullScreenBinding.vue`, `ViewOnOSMLink.vue`, `ViewOnKeepRightLink.vue`, `ViewOnOsmoseLink.vue`, `DataHeader.vue`, `KeepRightHeader.vue`, `NoteHeader.vue`, `FlashMessage.vue`, `LoadingModal.vue`, `SplashModal.vue`, `InfoPanels.vue`, `EditMenuShell.vue` |
+| `modules/ui/vue/*.vue` | Vue 单文件组件：`ZoomControls.vue`, `ScaleBar.vue`, `VersionBadge.vue`, `GeolocateButton.vue`, `ZoomToSelectionButton.vue`, `AttributionPanel.vue`, `StatusBar.vue`, `NoticeBanner.vue`, `SpinnerIndicator.vue`, `FeatureInfoChip.vue`, `IssuesInfoChips.vue`, `ContributorsList.vue`, `SourceSwitchChip.vue`, `AccountLinks.vue`, `RestoreModal.vue`, `FullScreenBinding.vue`, `ViewOnOSMLink.vue`, `ViewOnKeepRightLink.vue`, `ViewOnOsmoseLink.vue`, `DataHeader.vue`, `KeepRightHeader.vue`, `NoteHeader.vue`, `FlashMessage.vue`, `LoadingModal.vue`, `SplashModal.vue`, `InfoPanels.vue`, `EditMenuShell.vue`, `OsmoseHeader.vue`, `NoteReportLink.vue`, `LengthIndicator.vue`, `ConfirmDialog.vue`, `ShortcutsDialog.vue`, `KeepRightDetails.vue`, `OsmoseDetails.vue`, `FieldHelpPanel.vue`, `DataEditorPanel.vue`, `OsmoseEditorPanel.vue`, `KeepRightEditorPanel.vue`, `NoteEditorPanel.vue`, `TopToolbarShell.vue`, `SuccessPanel.vue`, `FeatureListPanel.vue`, `InspectorShell.vue`, `EntityEditorShell.vue`, `SidebarShell.vue`, `TagReferenceBody.vue`, `FeatureTypeSection.vue`, `PresetListShell.vue`, `FormFieldsShell.vue`, `PresetFieldsSection.vue`, `FieldShell.vue`, `SelectionListSection.vue`, `EntityIssuesSection.vue`, `CheckFieldInput.vue`, `NoteCommentsList.vue`, `TextareaFieldInput.vue`, `InputFieldShell.vue`, `RoadspeedFieldInput.vue`, `RoadheightFieldInput.vue`, `PresetIconShell.vue`, `RawTagEditorShell.vue`, `MemberEditorShell.vue`, `MembershipEditorShell.vue`, `PrivacySection.vue`, `MapFeaturesSection.vue`, `MapStyleOptionsSection.vue`, `ValidationStatusSection.vue`, `ChangesSection.vue`, `BackgroundDisplayOptionsSection.vue`, `BackgroundOffsetSection.vue`, `ValidationOptionsSection.vue`, `ValidationRulesSection.vue`, `ValidationIssuesSection.vue`, `BackgroundListSection.vue`, `OverlayListSection.vue`, `CustomBackgroundDialog.vue` |
 | `modules/ui/*.js` | 包装文件，导出 d3 兼容函数 |
 | `postcss.config.js` | PostCSS 配置（将 node_modules 排除在 `.ideditor` 前缀之外） |
 | `modules/id.js` | 初始化 Vue app + Element Plus 组件 CSS 引入 |
@@ -350,6 +350,55 @@ Element Plus 组件的样式独立于 iD 的 CSS。PostCSS 的 `.ideditor` 前�
 | 已完成 | `uiSplash` | 中 | 低（欢迎弹窗） | Vue modal + d3 隐私 section 混合 |
 | 已完成 | `uiInfo` | 高 | 中（面板容器） | Vue 管理面板壳，d3 渲染各 panel 内容 |
 | 已完成 | `uiEditMenu` | 高 | 高（弹出菜单） | Vue 管理菜单壳，保留定位/高亮/辅助几何逻辑 |
+| 已完成 | `uiOsmoseHeader` | 低 | 低（标题展示） | 保留 `.issue()` 接口 |
+| 已完成 | `uiNoteReport` | 低 | 低（外链展示） | 保留 `.note()` 接口 |
+| 已完成 | `uiLengthIndicator` | 中 | 中（提示 + 指示器） | 保留 `.update()` / `.silent()` imperative API |
+| 已完成 | `uiConfirm` | 中 | 低（确认弹窗） | 基于 `uiModal`，内容区切到 Vue |
+| 已完成 | `uiShortcuts` | 中 | 中（快捷键弹窗） | 基于 `uiModal`，内容区切到 Vue |
+| 已完成 | `uiKeepRightDetails` | 中 | 低（详情展示） | Vue 驱动详情内容与链接交互 |
+| 已完成 | `uiOsmoseDetails` | 中 | 低（详情展示） | Vue 驱动详情内容与异步数据加载 |
+| 已完成 | `uiFieldHelp` | 中 | 低（帮助弹层） | Vue 驱动内容区，保留 `.button()` / `.body()` API |
+| 已完成 | `uiDataEditor` | 中 | 低（编辑器壳层） | Vue 壳层 + 复用 d3 raw tag editor |
+| 已完成 | `uiOsmoseEditor` | 中 | 低（编辑器壳层） | Vue 壳层 + 复用已迁 header/details/link |
+| 已完成 | `uiKeepRightEditor` | 中 | 低（编辑器壳层） | Vue 壳层 + 复用已迁 header/details/link |
+| 已完成 | `uiNoteEditor` | 中 | 低（编辑器壳层） | Vue 壳层 + 复用已迁 header/comments/footer 组件 |
+| 已完成 | `uiTopToolbar` | 中 | 中（工具栏容器） | Vue 管理工具栏壳层，工具内部继续复用 d3 |
+| 已完成 | `uiSuccess` | 高 | 中（成功页） | Vue 驱动成功页内容，社区展开区改为原生 details |
+| 已完成 | `uiFeatureList` | 中 | 中（列表/搜索） | Vue 驱动搜索框与结果列表，保留 geocoder/选择逻辑 |
+| 已完成 | `uiInspector` | 高 | 中（双 pane 容器） | Vue 管理 preset/editor 双 pane 壳层，内部继续复用 d3 子编辑器 |
+| 已完成 | `uiEntityEditor` | 高 | 中（编辑器容器） | Vue 管理 header/body 壳层，section 继续复用 d3 |
+| 已完成 | `uiSidebar` | 高 | 中（左侧总容器） | Vue 管理 sidebar 壳层，内部继续复用已迁子组件与拖拽逻辑 |
+| 已完成 | `uiTagReference` | 中 | 低（文档弹层） | 文档内容切到 Vue，按钮/显隐 API 保持不变 |
+| 部分迁移 | `uiPresetList` | 高 | 中（preset 列表） | Vue 管理 header/search/list 壳层，item/category/键盘逻辑仍复用 d3 |
+| 部分迁移 | `uiSectionFeatureType` | 中 | 低（Inspector 区块） | Vue 管理区块壳层，图标/引用按钮仍复用 d3 |
+| 部分迁移 | `uiFormFields` | 高 | 中（字段组容器） | Vue 管理字段挂载位与“更多字段”输入壳层 |
+| 部分迁移 | `uiSectionPresetFields` | 高 | 中（字段区块） | Vue 管理区块壳层，字段本体继续复用 `uiField` |
+| 部分迁移 | `uiField` | 高 | 中（字段外壳） | Vue 管理 label/按钮/挂载位，具体字段实现继续复用 `ui/fields/*` |
+| 已完成 | `uiSectionSelectionList` | 中 | 低（多选列表） | Vue 驱动多选实体列表 |
+| 已完成 | `uiSectionEntityIssues` | 中 | 中（问题列表） | Vue 驱动问题列表、fix 按钮、reference 展开 |
+| 已完成 | `ui/fields/check.js` | 中 | 中（字段实现） | Vue 驱动 checkbox 与 reverser 外壳 |
+| 已完成 | `uiNoteComments` | 中 | 低（评论列表） | Vue 驱动评论列表与头像替换 |
+| 已完成 | `ui/fields/textarea.js` | 中 | 中（字段实现） | Vue 驱动 textarea 外壳与长度提示挂载位 |
+| 部分迁移 | `ui/fields/input.js` | 高 | 中（字段实现） | Vue 管理基础输入壳层，复杂附属控件仍复用 d3 |
+| 已完成 | `ui/fields/roadspeed.js` | 中 | 中（字段实现） | Vue 驱动限速输入壳层与单位输入 |
+| 已完成 | `ui/fields/roadheight.js` | 中 | 中（字段实现） | Vue 驱动限高输入壳层与双单位输入 |
+| 部分迁移 | `uiPresetIcon` | 中 | 低（图标渲染） | Vue 承载图标挂载壳层，具体 SVG/图像绘制仍复用原逻辑 |
+| 部分迁移 | `uiSectionRawTagEditor` | 高 | 中（raw tag 编辑） | Vue 管理 view/text/list 壳层，行级编辑逻辑仍复用 d3 |
+| 部分迁移 | `uiSectionRawMemberEditor` | 高 | 中（relation 成员编辑） | Vue 管理成员列表壳层，行级编辑/拖拽仍复用 d3 |
+| 部分迁移 | `uiSectionRawMembershipEditor` | 高 | 中（relation 归属编辑） | Vue 管理列表与 add-row 壳层，行级逻辑仍复用 d3 |
+| 已完成 | `uiSectionPrivacy` | 低 | 低（设置区块） | Vue 驱动隐私设置项 |
+| 已完成 | `uiSectionMapFeatures` | 中 | 低（图层开关区块） | Vue 驱动 feature toggle 列表 |
+| 已完成 | `uiSectionMapStyleOptions` | 中 | 低（样式区块） | Vue 驱动面填充/高亮编辑选项 |
+| 已完成 | `uiSectionValidationStatus` | 中 | 低（验证状态区块） | Vue 驱动“无问题/隐藏问题/重置忽略”状态展示 |
+| 已完成 | `uiSectionChanges` | 中 | 低（变更列表区块） | Vue 驱动 changes 列表与下载链接 |
+| 已完成 | `uiSectionBackgroundDisplayOptions` | 中 | 低（背景显示选项） | Vue 驱动亮度/对比度/饱和度/锐化滑块 |
+| 已完成 | `uiSectionBackgroundOffset` | 中 | 低（背景偏移区块） | Vue 驱动偏移输入、nudge 按钮和 reset UI |
+| 已完成 | `uiSectionValidationOptions` | 中 | 低（验证过滤区块） | Vue 驱动 what/where 过滤选项 |
+| 已完成 | `uiSectionValidationRules` | 中 | 低（规则列表区块） | Vue 驱动规则列表与 unsquare 阈值输入 |
+| 已完成 | `uiSectionValidationIssues` | 中 | 中（severity issue 列表） | Vue 驱动 severity issue 列表 |
+| 已完成 | `uiSectionBackgroundList` | 中 | 中（底图列表） | Vue 驱动背景图层列表，测试环境保留 fallback |
+| 已完成 | `uiSectionOverlayList` | 中 | 低（叠加层列表） | Vue 驱动 overlay 列表 |
+| 已完成 | `uiSettingsCustomBackground` | 中 | 中（设置弹窗内容） | Vue 驱动 custom background 对话框内容，保留 fallback |
 | 高 | `uiAccount` | 中 | 高（头像、按钮） | 登录状态、用户菜单 |
 | 中 | `uiFlash` | 中 | 极高（el-message） | 被多个组件依赖 |
 | 低 | `uiTopToolbar` | 高 | 中 | 含 5 个子工具的容器 |

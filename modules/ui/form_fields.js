@@ -1,17 +1,35 @@
 import { select as d3_select } from 'd3-selection';
+import { reactive } from 'vue';
 
 import { t } from '../core/localizer';
 import { uiCombobox } from './combobox';
 import { utilGetSetValue, utilNoAuto } from '../util';
+import { mountVueComponent } from './vue/bridge';
+import FormFieldsShell from './vue/FormFieldsShell.vue';
 
 
 export function uiFormFields(context) {
     var moreCombo = uiCombobox(context, 'more-fields').minItems(1);
     var _fieldsArr = [];
-    var _lastPlaceholder = '';
     var _state = '';
     var _klass = '';
+    var _fieldRefs = new Map();
+    var _moreInput = null;
 
+    var shellState = reactive({
+        shownKeys: [],
+        placeholder: '',
+        showMore: false,
+        klass: _klass,
+        setFieldRef: function(key, el) {
+            if (el) _fieldRefs.set(key, el);
+            else _fieldRefs.delete(key);
+        },
+        setMoreInput: function(el) {
+            _moreInput = el;
+        }
+    });
+    var render = mountVueComponent(FormFieldsShell, context, { state: shellState });
 
     function formFields(selection) {
         var allowedFields = _fieldsArr.filter(function(field) { return field.isAllowed(); });
@@ -19,47 +37,13 @@ export function uiFormFields(context) {
         var notShown = allowedFields.filter(function(field) { return !field.isShown(); })
             .sort(function(a, b) { return (a.universal === b.universal ? 0 : a.universal ? 1 : -1); });
 
-        var container = selection.selectAll('.form-fields-container')
-            .data([0]);
-
-        container = container.enter()
-            .append('div')
-            .attr('class', 'form-fields-container ' + (_klass || ''))
-            .merge(container);
-
-
-        var fields = container.selectAll('.wrap-form-field')
-            .data(shown, function(d) { return d.id + (d.entityIDs ? d.entityIDs.join() : ''); });
-
-        fields.exit()
-            .remove();
-
-        // Enter
-        var enter = fields.enter()
-            .append('div')
-            .attr('class', function(d) { return 'wrap-form-field wrap-form-field-' + d.safeid; });
-
-        // Update
-        fields = fields
-            .merge(enter);
-
-        fields
-            .order()
-            .each(function(d) {
-                d3_select(this)
-                    .call(d.render);
-            });
-
-
         var titles = [];
         var moreFields = notShown.map(function(field) {
             var title = field.title();
             titles.push(title);
-
             var terms = field.terms();
             if (field.key) terms.push(field.key);
             if (field.keys) terms = terms.concat(field.keys);
-
             return {
                 display: field.label(),
                 value: title,
@@ -69,62 +53,33 @@ export function uiFormFields(context) {
             };
         });
 
-        var placeholder = titles.slice(0,3).join(', ') + ((titles.length > 3) ? '…' : '');
+        shellState.shownKeys = shown.map(function(d) { return d.safeid; });
+        shellState.placeholder = titles.slice(0,3).join(', ') + ((titles.length > 3) ? '…' : '');
+        shellState.showMore = !(_state === 'hover' || moreFields.length === 0);
+        shellState.klass = _klass;
+        render(selection);
 
+        shown.forEach(function(field) {
+            var el = _fieldRefs.get(field.safeid);
+            if (el) d3_select(el).call(field.render);
+        });
 
-        var more = selection.selectAll('.more-fields')
-            .data((_state === 'hover' || moreFields.length === 0) ? [] : [0]);
-
-        more.exit()
-            .remove();
-
-        var moreEnter = more.enter()
-            .append('div')
-            .attr('class', 'more-fields')
-            .append('label');
-
-        moreEnter
-            .append('span')
-            .call(t.append('inspector.add_fields'));
-
-        more = moreEnter
-            .merge(more);
-
-
-        var input = more.selectAll('.value')
-            .data([0]);
-
-        input.exit()
-            .remove();
-
-        input = input.enter()
-            .append('input')
-            .attr('class', 'value')
-            .attr('type', 'text')
-            .attr('placeholder', placeholder)
-            .call(utilNoAuto)
-            .merge(input);
-
-        input
-            .call(utilGetSetValue, '')
-            .call(moreCombo
-                .data(moreFields)
-                .on('accept', function (d) {
-                    if (!d) return;  // user entered something that was not matched
-                    var field = d.field;
-                    field.show();
-                    selection.call(formFields);  // rerender
-                    field.focus();
-                })
-            );
-
-        // avoid updating placeholder excessively (triggers style recalc)
-        if (_lastPlaceholder !== placeholder) {
-            input.attr('placeholder', placeholder);
-            _lastPlaceholder = placeholder;
+        if (_moreInput) {
+            d3_select(_moreInput)
+                .call(utilGetSetValue, '')
+                .call(utilNoAuto)
+                .call(moreCombo
+                    .data(moreFields)
+                    .on('accept', function (d) {
+                        if (!d) return;
+                        var field = d.field;
+                        field.show();
+                        selection.call(formFields);
+                        field.focus();
+                    })
+                );
         }
     }
-
 
     formFields.fieldsArr = function(val) {
         if (!arguments.length) return _fieldsArr;
@@ -144,6 +99,7 @@ export function uiFormFields(context) {
         return formFields;
     };
 
+    formFields.unmount = render.unmount;
 
     return formFields;
 }

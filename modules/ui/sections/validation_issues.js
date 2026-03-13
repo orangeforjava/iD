@@ -1,7 +1,6 @@
 import _debounce from 'lodash-es/debounce';
-import {
-    select as d3_select
-} from 'd3-selection';
+import { select as d3_select } from 'd3-selection';
+import { reactive } from 'vue';
 
 //import { actionNoop } from '../actions/noop';
 import { geoSphericalDistance } from '../../geo';
@@ -11,10 +10,19 @@ import { t } from '../../core/localizer';
 import { utilHighlightEntities } from '../../util';
 import { uiSection } from '../section';
 import { validationIssue } from '../../core/validation';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import ValidationIssuesSection from '../vue/ValidationIssuesSection.vue';
 
 export function uiSectionValidationIssues(id, severity, context) {
 
     var _issues = [];
+    var _registrationId;
+    var state = reactive({
+        severity: severity,
+        issues: [],
+        focusIssue: function(issue) { context.validator().focusIssue(issue); },
+        hover: function(issue, val) { utilHighlightEntities(issue.entityIds, val, context); }
+    });
 
     var section = uiSection(id, context)
         .label(function() {
@@ -59,71 +67,21 @@ export function uiSectionValidationIssues(id, severity, context) {
 
         //renderIgnoredIssuesReset(_warningsSelection);
 
-        selection
-            .call(drawIssuesList, issues);
-    }
+        state.issues = issues.map(function(issue) {
+            var div = document.createElement('div');
+            issue.message(context)(d3_select(div));
+            return {
+                key: issue.key,
+                severity: issue.severity,
+                icon: validationIssue.ICONS[issue.severity],
+                message: div.textContent || '',
+                raw: issue
+            };
+        });
 
-    function drawIssuesList(selection, issues) {
-        var list = selection.selectAll('.issues-list')
-            .data([0]);
-
-        list = list.enter()
-            .append('ul')
-            .attr('class', 'layer-list issues-list ' + severity + 's-list')
-            .merge(list);
-
-
-        var items = list.selectAll('li')
-            .data(issues, function(d) { return d.key; });
-
-        // Exit
-        items.exit()
-            .remove();
-
-        // Enter
-        var itemsEnter = items.enter()
-            .append('li')
-            .attr('class', function (d) { return 'issue severity-' + d.severity; });
-
-        var labelsEnter = itemsEnter
-            .append('button')
-            .attr('class', 'issue-label')
-            .on('click', function(d3_event, d) {
-                context.validator().focusIssue(d);
-            })
-            .on('mouseover', function(d3_event, d) {
-                utilHighlightEntities(d.entityIds, true, context);
-            })
-            .on('mouseout', function(d3_event, d) {
-                utilHighlightEntities(d.entityIds, false, context);
-            });
-
-        var textEnter = labelsEnter
-            .append('span')
-            .attr('class', 'issue-text');
-
-        textEnter
-            .append('span')
-            .attr('class', 'issue-icon')
-            .each(function(d) {
-                d3_select(this)
-                    .call(svgIcon(validationIssue.ICONS[d.severity]));
-            });
-
-        textEnter
-            .append('span')
-            .attr('class', 'issue-message');
-
-        // Update
-        items = items
-            .merge(itemsEnter)
-            .order();
-
-        items.selectAll('.issue-message')
-            .text('')
-            .each(function(d) {
-                return d.message(context)(d3_select(this));
-            });
+        if (!isVueAppInitialized()) return;
+        if (_registrationId) unregisterComponent(_registrationId);
+        _registrationId = registerComponent(ValidationIssuesSection, selection.node(), { state: state });
     }
 
     context.validator().on('validated.uiSectionValidationIssues' + id, function() {

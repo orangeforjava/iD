@@ -1,7 +1,5 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
-import {
-    select as d3_select
-} from 'd3-selection';
+import { select as d3_select } from 'd3-selection';
 import { omit } from 'lodash-es';
 
 import { utilRebind } from '../../util/rebind';
@@ -10,28 +8,23 @@ import { actionReverse } from '../../actions/reverse';
 import { svgIcon } from '../../svg/icon';
 import { utilCheckTagDictionary } from '../../util';
 import { osmOneWayTags } from '../../osm/tags';
+import { mountVueComponent } from '../vue/bridge';
+import CheckFieldInput from '../vue/CheckFieldInput.vue';
 
 export { uiFieldCheck as uiFieldDefaultCheck };
 export { uiFieldCheck as uiFieldOnewayCheck };
-
 
 export function uiFieldCheck(field, context) {
     var dispatch = d3_dispatch('change');
     var options = field.options;
     var values = [];
     var texts = [];
-
     var _tags;
-
-    var input = d3_select(null);
-    var text = d3_select(null);
-    var label = d3_select(null);
-    var reverser = d3_select(null);
-
     var _impliedYes;
     var _entityIDs = [];
     var _value;
-
+    var _refs = null;
+    var _renderVersion = 0;
 
     var stringsField = field.resolveReference('stringsCrossReference');
     if (!options && stringsField.options) {
@@ -53,13 +46,8 @@ export function uiFieldCheck(field, context) {
         }
     }
 
-
-    // Checks tags to see whether an undefined value is "Assumed to be Yes"
     function checkImpliedYes() {
         _impliedYes = (field.id === 'oneway_yes');
-
-        // hack: pretend `oneway` field is a `oneway_yes` field
-        // where implied oneway tag exists (e.g. `junction=roundabout`) #2220, #1841
         if (field.id === 'oneway') {
             var entity = context.entity(_entityIDs[0]);
             if (entity.type === 'way' && !!utilCheckTagDictionary(entity.tags, omit(osmOneWayTags, 'oneway'))) {
@@ -69,12 +57,10 @@ export function uiFieldCheck(field, context) {
         }
     }
 
-
     function reverserHidden() {
         if (!context.container().select('div.inspector-hover').empty()) return true;
         return !(_value === 'yes' || (_impliedYes && !_value));
     }
-
 
     function reverserSetText(selection) {
         var entity = _entityIDs.length && context.hasEntity(_entityIDs[0]);
@@ -93,91 +79,64 @@ export function uiFieldCheck(field, context) {
         return selection;
     }
 
+    var shellState = {
+        domId: field.domId,
+        checked: false,
+        isMixed: false,
+        textHtml: '',
+        showReverser: field.type === 'onewayCheck',
+        reverserHidden: true,
+        value: null,
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+            if (_refs && _refs.input) {
+                _refs.input.indeterminate = shellState.isMixed || (field.type !== 'defaultCheck' && !_value);
+            }
+            if (_refs && _refs.reverser) {
+                reverserSetText(d3_select(_refs.reverser.parentNode));
+            }
+        },
+        onToggle: function(d3_event) {
+            d3_event.stopPropagation();
+            var t = {};
+            if (Array.isArray(_tags[field.key])) {
+                if (values.indexOf('yes') !== -1) {
+                    t[field.key] = 'yes';
+                } else {
+                    t[field.key] = values[0];
+                }
+            } else {
+                t[field.key] = values[(values.indexOf(_value) + 1) % values.length];
+            }
+            if (t[field.key] === 'reversible' || t[field.key] === 'alternating') {
+                t[field.key] = values[0];
+            }
+            dispatch.call('change', this, t);
+        },
+        onReverse: function() {
+            context.perform(
+                function(graph) {
+                    for (var i in _entityIDs) {
+                        graph = actionReverse(_entityIDs[i])(graph);
+                    }
+                    return graph;
+                },
+                t('operations.reverse.annotation.line', { n: 1 })
+            );
+            context.validator().validate();
+            if (_refs && _refs.reverser) {
+                reverserSetText(d3_select(_refs.reverser.parentNode));
+            }
+        }
+    };
+    var renderShell = mountVueComponent(CheckFieldInput, context, { state: shellState });
 
     var check = function(selection) {
         checkImpliedYes();
-
-        label = selection.selectAll('.form-field-input-wrap')
-            .data([0]);
-
-        var enter = label.enter()
-            .append('label')
-            .attr('class', 'form-field-input-wrap form-field-input-check');
-
-        enter
-            .append('input')
-            .property('indeterminate', field.type !== 'defaultCheck')
-            .attr('type', 'checkbox')
-            .attr('id', field.domId);
-
-        enter
-            .append('span')
-            .html(texts[0])
-            .attr('class', 'value');
-
-        if (field.type === 'onewayCheck') {
-            enter
-                .append('button')
-                .attr('class', 'reverser' + (reverserHidden() ? ' hide' : ''))
-                .append('span')
-                .attr('class', 'reverser-span');
-        }
-
-        label = label.merge(enter);
-        input = label.selectAll('input');
-        text = label.selectAll('span.value');
-
-        input
-            .on('click', function(d3_event) {
-                d3_event.stopPropagation();
-                var t = {};
-
-                if (Array.isArray(_tags[field.key])) {
-                    if (values.indexOf('yes') !== -1) {
-                        t[field.key] = 'yes';
-                    } else {
-                        t[field.key] = values[0];
-                    }
-                } else {
-                    t[field.key] = values[(values.indexOf(_value) + 1) % values.length];
-                }
-
-                // Don't cycle through `alternating` or `reversible` states - #4970
-                // (They are supported as translated strings, but should not toggle with clicks)
-                if (t[field.key] === 'reversible' || t[field.key] === 'alternating') {
-                    t[field.key] = values[0];
-                }
-
-                dispatch.call('change', this, t);
-            });
-
-        if (field.type === 'onewayCheck') {
-            reverser = label.selectAll('.reverser');
-
-            reverser
-                .call(reverserSetText)
-                .on('click', function(d3_event) {
-                    d3_event.preventDefault();
-                    d3_event.stopPropagation();
-                    context.perform(
-                        function(graph) {
-                            for (var i in _entityIDs) {
-                                graph = actionReverse(_entityIDs[i])(graph);
-                            }
-                            return graph;
-                        },
-                        t('operations.reverse.annotation.line', { n: 1 })
-                    );
-
-                    // must manually revalidate since no 'change' event was called
-                    context.validator().validate();
-
-                    d3_select(this)
-                        .call(reverserSetText);
-                });
-        }
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
     };
-
 
     check.entityIDs = function(val) {
         if (!arguments.length) return _entityIDs;
@@ -185,9 +144,7 @@ export function uiFieldCheck(field, context) {
         return check;
     };
 
-
     check.tags = function(tags) {
-
         _tags = tags;
 
         function isChecked(val) {
@@ -203,35 +160,24 @@ export function uiFieldCheck(field, context) {
         checkImpliedYes();
 
         var isMixed = Array.isArray(tags[field.key]);
-
         _value = !isMixed && tags[field.key] && tags[field.key].toLowerCase();
-
         if (field.type === 'onewayCheck' && (_value === '1' || _value === '-1')) {
             _value = 'yes';
         }
 
-        input
-            .property('indeterminate', isMixed || (field.type !== 'defaultCheck' && !_value))
-            .property('checked', isChecked(_value));
-
-        text
-            .html(isMixed ? t.html('inspector.multiple_values') : textFor(_value))
-            .classed('mixed', isMixed);
-
-        label
-            .classed('set', !!_value);
-
-        if (field.type === 'onewayCheck') {
-            reverser
-                .classed('hide', reverserHidden())
-                .call(reverserSetText);
-        }
+        shellState.isMixed = isMixed;
+        shellState.checked = isChecked(_value);
+        shellState.textHtml = isMixed ? t.html('inspector.multiple_values') : textFor(_value);
+        shellState.value = _value;
+        shellState.reverserHidden = reverserHidden();
+        shellState.renderVersion = ++_renderVersion;
     };
-
 
     check.focus = function() {
-        input.node().focus();
+        if (_refs && _refs.input) _refs.input.focus();
     };
+
+    check.unmount = renderShell.unmount;
 
     return utilRebind(check, dispatch, 'on');
 }

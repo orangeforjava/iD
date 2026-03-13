@@ -12,6 +12,11 @@ import { geoExtent } from '../geo/extent';
 import { uiPresetIcon } from './preset_icon';
 import { uiTagReference } from './tag_reference';
 import { utilKeybinding, utilNoAuto, utilRebind } from '../util';
+import { mountVueComponent } from './vue/bridge';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from './vue/app';
+import PresetListShell from './vue/PresetListShell.vue';
+import PresetListEntry from './vue/PresetListEntry.vue';
+import PresetListCategory from './vue/PresetListCategory.vue';
 
 
 export function uiPresetList(context) {
@@ -20,6 +25,49 @@ export function uiPresetList(context) {
     var _currLoc;
     var _currentPresets;
     var _autofocus = false;
+    var _refs = null;
+
+    var shellState = {
+        searchPlaceholder: 'Search feature type',
+        closeTitle: '',
+        onCancel: function() { dispatch.call('cancel'); },
+        setRefs: function(refs) { _refs = refs; }
+    };
+    var renderShell = mountVueComponent(PresetListShell, context, { state: shellState });
+
+
+    function ensureRefs(selection) {
+        if (_refs) return;
+
+        var header = selection.selectAll('.header').data([0]).enter()
+            .append('div').attr('class', 'header fillL')
+            .merge(selection.selectAll('.header'));
+
+        var message = header.selectAll('h2').data([0]).enter().append('h2').merge(header.selectAll('h2'));
+        var closeButton = header.selectAll('button.preset-choose').data([0]).enter()
+            .append('button').attr('class', 'preset-choose')
+            .merge(header.selectAll('button.preset-choose'));
+        closeButton.on('click', function() { dispatch.call('cancel', this); }).call(svgIcon('#iD-icon-close'));
+
+        var searchWrap = selection.selectAll('.search-header').data([0]).enter()
+            .append('div').attr('class', 'search-header')
+            .merge(selection.selectAll('.search-header'));
+        searchWrap.selectAll('svg.icon').data([0]).enter();
+        if (searchWrap.selectAll('svg.icon').empty()) {
+          searchWrap.call(svgIcon('#iD-icon-search', 'pre-text'));
+        }
+        var search = searchWrap.selectAll('input.preset-search-input').data([0]).enter()
+            .append('input').attr('class', 'preset-search-input').attr('type', 'search')
+            .merge(searchWrap.selectAll('input.preset-search-input'));
+        var listWrap = selection.selectAll('.inspector-body').data([0]).enter()
+            .append('div').attr('class', 'inspector-body')
+            .merge(selection.selectAll('.inspector-body'));
+        var list = listWrap.selectAll('.preset-list').data([0]).enter()
+            .append('div').attr('class', 'preset-list')
+            .merge(listWrap.selectAll('.preset-list'));
+
+        _refs = { message: message.node(), search: search.node(), list: list.node() };
+    }
 
 
     function presetList(selection) {
@@ -27,22 +75,11 @@ export function uiPresetList(context) {
 
         var presets = presetManager.matchAllGeometry(entityGeometries());
 
-        selection.html('');
+        shellState.closeTitle = _entityIDs.length === 1 ? t('inspector.edit') : t('inspector.edit_features');
+        renderShell(selection);
+        ensureRefs(selection);
 
-        var messagewrap = selection
-            .append('div')
-            .attr('class', 'header fillL');
-
-        var message = messagewrap
-            .append('h2')
-            .call(t.append('inspector.choose'));
-
-        messagewrap
-            .append('button')
-            .attr('class', 'preset-choose')
-            .attr('title', _entityIDs.length === 1 ? t('inspector.edit') : t('inspector.edit_features'))
-            .on('click', function() { dispatch.call('cancel', this); })
-            .call(svgIcon('#iD-icon-close'));
+        var message = d3_select(_refs.message).text('').call(t.append('inspector.choose'));
 
         function initialKeydown(d3_event) {
             // hack to let delete shortcut work when search is autofocused
@@ -111,18 +148,8 @@ export function uiPresetList(context) {
             message.html(messageText);
         }
 
-        var searchWrap = selection
-            .append('div')
-            .attr('class', 'search-header');
-
-        searchWrap
-            .call(svgIcon('#iD-icon-search', 'pre-text'));
-
-        var search = searchWrap
-            .append('input')
-            .attr('class', 'preset-search-input')
-            .attr('placeholder', t('inspector.search_feature_type'))
-            .attr('type', 'search')
+        var search = d3_select(_refs.search)
+            .attr('placeholder', 'Search feature type')
             .call(utilNoAuto)
             .on('keydown', initialKeydown)
             .on('keypress', keypress)
@@ -138,15 +165,9 @@ export function uiPresetList(context) {
             }, 0);
         }
 
-        var listWrap = selection
-            .append('div')
-            .attr('class', 'inspector-body');
-
         var entityPresets = _entityIDs.map(entityID =>
             presetManager.match(context.graph().entity(entityID), context.graph()));
-        var list = listWrap
-            .append('div')
-            .attr('class', 'preset-list')
+        var list = d3_select(_refs.list)
             .call(drawList, presetManager.defaults(entityGeometries()[0], 36, !context.inIntro(), _currLoc, entityPresets));
 
         context.features().on('change.preset-list', updateForFeatureHiddenState);
@@ -268,20 +289,56 @@ export function uiPresetList(context) {
 
     function CategoryItem(preset) {
         var box, sublist, shown = false;
+        var _registrationId;
+        var _refs;
 
         function item(selection) {
+            if (isVueAppInitialized()) {
+                const state = {
+                    expanded: shown,
+                    buttonTitle: shown ? t('icons.collapse') : t('icons.expand'),
+                    arrowIcon: shown ? '#iD-icon-down' : (localizer.textDirection() === 'rtl' ? '#iD-icon-backward' : '#iD-icon-forward'),
+                    nameHtml: (() => { var div = document.createElement('div'); preset.nameLabel()(d3_select(div)); return div.innerHTML; })(),
+                    maxHeight: '0px',
+                    renderVersion: 0,
+                    setRefs: function(refs) {
+                        _refs = refs;
+                        if (_refs && _refs.button) {
+                            _refs.button.__presetListItem = item;
+                        }
+                        if (_refs && _refs.icon) {
+                            d3_select(_refs.icon).call(uiPresetIcon()
+                                .geometry(entityGeometries().length === 1 && entityGeometries()[0])
+                                .preset(preset));
+                        }
+                        box = _refs && _refs.subgrid ? d3_select(_refs.subgrid) : null;
+                        sublist = _refs && _refs.sublist ? d3_select(_refs.sublist) : null;
+                    },
+                    onToggle: click,
+                    onKeydown: function(d3_event) {
+                        if (d3_event.keyCode === utilKeybinding.keyCodes[(localizer.textDirection() === 'rtl') ? '←' : '→']) {
+                            d3_event.preventDefault(); d3_event.stopPropagation(); if (!shown) click.call(d3_event.currentTarget, d3_event);
+                        } else if (d3_event.keyCode === utilKeybinding.keyCodes[(localizer.textDirection() === 'rtl') ? '→' : '←']) {
+                            d3_event.preventDefault(); d3_event.stopPropagation(); if (shown) click.call(d3_event.currentTarget, d3_event);
+                        } else {
+                            itemKeydown.call(d3_event.currentTarget, d3_event);
+                        }
+                    }
+                };
+                if (_registrationId) unregisterComponent(_registrationId);
+                _registrationId = registerComponent(PresetListCategory, selection.node(), { state: state });
+                return;
+            }
+
             var wrap = selection.append('div')
                 .attr('class', 'preset-list-button-wrap category');
 
-            function click() {
-                var isExpanded = d3_select(this).classed('expanded');
+        function click() {
+                var isExpanded = shown;
                 var iconName = isExpanded ?
                     (localizer.textDirection() === 'rtl' ? '#iD-icon-backward' : '#iD-icon-forward') : '#iD-icon-down';
-                d3_select(this)
-                    .classed('expanded', !isExpanded)
-                    .attr('title', !isExpanded ? t('icons.collapse') : t('icons.expand'));
-                d3_select(this).selectAll('div.label-inner svg.icon use')
-                    .attr('href', iconName);
+                d3_select(this).classed('expanded', !isExpanded).attr('title', !isExpanded ? t('icons.collapse') : t('icons.expand'));
+                d3_select(this).selectAll('div.label-inner svg.icon use').attr('href', iconName);
                 item.choose();
             }
 
@@ -375,7 +432,41 @@ export function uiPresetList(context) {
 
 
     function PresetItem(preset) {
+        var _registrationId;
         function item(selection) {
+            if (isVueAppInitialized()) {
+                const nameparts = [preset.nameLabel(), preset.subtitleLabel()].filter(Boolean).map(fn => {
+                    var div = document.createElement('div');
+                    fn(d3_select(div));
+                    return div.innerHTML;
+                });
+                const state = {
+                    nameparts: nameparts,
+                    disabled: false,
+                    tooltip: '',
+                    renderVersion: 0,
+                    setRefs: function(refs) {
+                        if (refs && refs.button) {
+                            refs.button.__presetListItem = item;
+                        }
+                        if (refs.icon) {
+                            d3_select(refs.icon).call(uiPresetIcon().geometry(entityGeometries().length === 1 && entityGeometries()[0]).preset(preset));
+                        }
+                        if (refs.accessory) {
+                            d3_select(refs.accessory).call(item.reference.button);
+                        }
+                        if (refs.body) {
+                            d3_select(refs.body).call(item.reference.body);
+                        }
+                    },
+                    onChoose: item.choose,
+                    onKeydown: function(d3_event) { itemKeydown.call(d3_event.currentTarget, d3_event); }
+                };
+                if (_registrationId) unregisterComponent(_registrationId);
+                _registrationId = registerComponent(PresetListEntry, selection.node(), { state: state });
+                return;
+            }
+
             var wrap = selection.append('div')
                 .attr('class', 'preset-list-button-wrap');
 
@@ -455,6 +546,8 @@ export function uiPresetList(context) {
         button.call(uiTooltip().destroyAny);
 
         button.each(function(item, index) {
+            item = item || this.__presetListItem;
+            if (!item || !item.preset) return;
             var hiddenPresetFeaturesId;
             for (var i in geometries) {
                 hiddenPresetFeaturesId = context.features().isHiddenPreset(item.preset, geometries[i]);

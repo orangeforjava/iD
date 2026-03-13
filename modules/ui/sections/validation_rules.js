@@ -1,14 +1,17 @@
 import {
     select as d3_select
 } from 'd3-selection';
+import { reactive } from 'vue';
 
 import { prefs } from '../../core/preferences';
 import { t } from '../../core/localizer';
 import { utilGetSetValue, utilNoAuto } from '../../util';
-import { uiTooltip } from '../tooltip';
 import { uiSection } from '../section';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import ValidationRulesSection from '../vue/ValidationRulesSection.vue';
 
 export function uiSectionValidationRules(context) {
+    var _registrationId;
 
     var MINSQUARE = 0;
     var MAXSQUARE = 20;
@@ -25,136 +28,37 @@ export function uiSectionValidationRules(context) {
             return t('issues.' + key1 + '.title') < t('issues.' + key2 + '.title') ? -1 : 1;
         });
 
+    var state = reactive({
+        rules: [],
+        squareDegrees: prefs('validate-square-degrees') === null ? DEFAULTSQUARE.toString() : prefs('validate-square-degrees'),
+        disableAllText: t('issues.disable_all'),
+        enableAllText: t('issues.enable_all'),
+        toggleRule: function(key) { context.validator().toggleRule(key); },
+        disableAll: function() { context.validator().disableRules(_ruleKeys); },
+        enableAll: function() { context.validator().disableRules([]); },
+        onSquareClick: function(e) { e.preventDefault(); e.stopPropagation(); e.target.select(); },
+        onSquareEnter: function(e) { e.target.blur(); e.target.select(); },
+        changeSquare: changeSquare
+    });
+
     function renderDisclosureContent(selection) {
-        var container = selection.selectAll('.issues-rulelist-container')
-            .data([0]);
+        state.squareDegrees = prefs('validate-square-degrees') === null ? DEFAULTSQUARE.toString() : prefs('validate-square-degrees');
+        state.rules = _ruleKeys.map(function(key) {
+            var params = {};
+            if (key === 'unsquare_way') {
+                params.val = { html: '' };
+            }
+            return {
+                key: key,
+                title: t.html('issues.' + key + '.title', params),
+                tooltip: t('issues.' + key + '.tip'),
+                enabled: context.validator().isRuleEnabled(key)
+            };
+        });
 
-        var containerEnter = container.enter()
-            .append('div')
-            .attr('class', 'issues-rulelist-container');
-
-        containerEnter
-            .append('ul')
-            .attr('class', 'layer-list issue-rules-list');
-
-        var ruleLinks = containerEnter
-            .append('div')
-            .attr('class', 'issue-rules-links section-footer');
-
-        ruleLinks
-            .append('a')
-            .attr('class', 'issue-rules-link')
-            .attr('role', 'button')
-            .attr('href', '#')
-            .call(t.append('issues.disable_all'))
-            .on('click', function(d3_event) {
-                d3_event.preventDefault();
-                context.validator().disableRules(_ruleKeys);
-            });
-
-        ruleLinks
-            .append('a')
-            .attr('class', 'issue-rules-link')
-            .attr('role', 'button')
-            .attr('href', '#')
-            .call(t.append('issues.enable_all'))
-            .on('click', function(d3_event) {
-                d3_event.preventDefault();
-                context.validator().disableRules([]);
-            });
-
-
-        // Update
-        container = container
-            .merge(containerEnter);
-
-        container.selectAll('.issue-rules-list')
-            .call(drawListItems, _ruleKeys, 'checkbox', 'rule', toggleRule, isRuleEnabled);
-    }
-
-    function drawListItems(selection, data, type, name, change, active) {
-        var items = selection.selectAll('li')
-            .data(data);
-
-        // Exit
-        items.exit()
-            .remove();
-
-        // Enter
-        var enter = items.enter()
-            .append('li');
-
-        if (name === 'rule') {
-            enter
-                .call(uiTooltip()
-                    .title(function(d) { return t.append('issues.' + d + '.tip'); })
-                    .placement('top')
-                );
-        }
-
-        var label = enter
-            .append('label');
-
-        label
-            .append('input')
-            .attr('type', type)
-            .attr('name', name)
-            .on('change', change);
-
-        label
-            .append('span')
-            .html(function(d) {
-                var params = {};
-                if (d === 'unsquare_way') {
-                    params.val = { html: '<span class="square-degrees"></span>' };
-                }
-                return t.html('issues.' + d + '.title', params);
-            });
-
-        // Update
-        items = items
-            .merge(enter);
-
-        items
-            .classed('active', active)
-            .selectAll('input')
-            .property('checked', active)
-            .property('indeterminate', false);
-
-
-        // user-configurable square threshold
-        var degStr = prefs('validate-square-degrees');
-        if (degStr === null) {
-            degStr = DEFAULTSQUARE.toString();
-        }
-
-        var span = items.selectAll('.square-degrees');
-        var input = span.selectAll('.square-degrees-input')
-            .data([0]);
-
-        // enter / update
-        input.enter()
-            .append('input')
-            .attr('type', 'number')
-            .attr('min', MINSQUARE.toString())
-            .attr('max', MAXSQUARE.toString())
-            .attr('step', '0.5')
-            .attr('class', 'square-degrees-input')
-            .call(utilNoAuto)
-            .on('click', function (d3_event) {
-                d3_event.preventDefault();
-                d3_event.stopPropagation();
-                this.select();
-            })
-            .on('keyup', function (d3_event) {
-                if (d3_event.keyCode === 13) { // ↩ Return
-                    this.blur();
-                    this.select();
-                }
-            })
-            .on('blur', changeSquare)
-            .merge(input)
-            .property('value', degStr);
+        if (!isVueAppInitialized()) return;
+        if (_registrationId) unregisterComponent(_registrationId);
+        _registrationId = registerComponent(ValidationRulesSection, selection.node(), { state: state });
     }
 
     function changeSquare() {
@@ -178,14 +82,6 @@ export function uiSectionValidationRules(context) {
 
         prefs('validate-square-degrees', degStr);
         context.validator().revalidateUnsquare();
-    }
-
-    function isRuleEnabled(d) {
-        return context.validator().isRuleEnabled(d);
-    }
-
-    function toggleRule(d3_event, d) {
-        context.validator().toggleRule(d);
     }
 
     context.validator().on('validated.uiSectionValidationRules', function() {

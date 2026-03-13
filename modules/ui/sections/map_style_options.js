@@ -1,8 +1,20 @@
 import { t } from '../../core/localizer';
-import { uiTooltip } from '../tooltip';
 import { uiSection } from '../section';
+import { reactive } from 'vue';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import MapStyleOptionsSection from '../vue/MapStyleOptionsSection.vue';
 
 export function uiSectionMapStyleOptions(context) {
+    var _registrationId;
+    var state = reactive({
+        fillItems: [],
+        diffItems: [],
+        setFill: function(id) { context.map().activeAreaFill(id); },
+        toggleHighlight: function(d3_event) {
+            d3_event.preventDefault();
+            context.map().toggleHighlightEdited();
+        }
+    });
 
     var section = uiSection('fill-area', context)
         .label(() => t.append('map_data.style_options'))
@@ -10,85 +22,23 @@ export function uiSectionMapStyleOptions(context) {
         .expandedByDefault(false);
 
     function renderDisclosureContent(selection) {
-        var container = selection.selectAll('.layer-fill-list')
-            .data([0]);
-
-        container.enter()
-            .append('ul')
-            .attr('class', 'layer-list layer-fill-list')
-            .merge(container)
-            .call(drawListItems, context.map().areaFillOptions, 'radio', 'area_fill', setFill, isActiveFill);
-
-        var container2 = selection.selectAll('.layer-visual-diff-list')
-            .data([0]);
-
-        container2.enter()
-            .append('ul')
-            .attr('class', 'layer-list layer-visual-diff-list')
-            .merge(container2)
-            .call(drawListItems, ['highlight_edits'], 'checkbox', 'visual_diff', toggleHighlightEdited, function() {
-                return context.surface().classed('highlight-edited');
-            });
-    }
-
-    function drawListItems(selection, data, type, name, change, active) {
-        var items = selection.selectAll('li')
-            .data(data);
-
-        // Exit
-        items.exit()
-            .remove();
-
-        // Enter
-        var enter = items.enter()
-            .append('li')
-            .call(uiTooltip()
-                .title(function(d) {
-                    return t.append(name + '.' + d + '.tooltip');
-                })
-                .keys(function(d) {
-                    var key = (d === 'wireframe' ? t('area_fill.wireframe.key') : null);
-                    if (d === 'highlight_edits') key = t('map_data.highlight_edits.key');
-                    return key ? [key] : null;
-                })
-                .placement('top')
-            );
-
-        var label = enter
-            .append('label');
-
-        label
-            .append('input')
-            .attr('type', type)
-            .attr('name', name)
-            .on('change', change);
-
-        label
-            .append('span')
-            .html(function(d) { return t.html(name + '.' + d + '.description'); });
-
-        // Update
-        items = items
-            .merge(enter);
-
-        items
-            .classed('active', active)
-            .selectAll('input')
-            .property('checked', active)
-            .property('indeterminate', false);
-    }
-
-    function isActiveFill(d) {
-        return context.map().activeAreaFill() === d;
-    }
-
-    function toggleHighlightEdited(d3_event) {
-        d3_event.preventDefault();
-        context.map().toggleHighlightEdited();
-    }
-
-    function setFill(d3_event, d) {
-        context.map().activeAreaFill(d);
+        state.fillItems = context.map().areaFillOptions.map(function(id) {
+            return {
+                id: id,
+                active: context.map().activeAreaFill() === id,
+                description: t.html('area_fill.' + id + '.description'),
+                tooltip: t('area_fill.' + id + '.tooltip')
+            };
+        });
+        state.diffItems = [{
+            id: 'highlight_edits',
+            active: context.surface().classed('highlight-edited'),
+            description: t.html('visual_diff.highlight_edits.description'),
+            tooltip: t('visual_diff.highlight_edits.tooltip')
+        }];
+        if (!isVueAppInitialized()) return;
+        if (_registrationId) unregisterComponent(_registrationId);
+        _registrationId = registerComponent(MapStyleOptionsSection, selection.node(), { state: state });
     }
 
     context.map()

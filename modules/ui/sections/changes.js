@@ -1,4 +1,4 @@
-import { select as d3_select } from 'd3-selection';
+import { reactive } from 'vue';
 
 import { presetManager } from '../../presets';
 import { fileFetcher } from '../../core/file_fetcher';
@@ -6,8 +6,9 @@ import { t } from '../../core/localizer';
 import { JXON } from '../../util/jxon';
 import { actionDiscardTags } from '../../actions/discard_tags';
 import { osmChangeset } from '../../osm';
-import { svgIcon } from '../../svg/icon';
 import { uiSection } from '../section';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import ChangesSection from '../vue/ChangesSection.vue';
 
 import {
     utilDisplayName,
@@ -18,6 +19,27 @@ import {
 
 export function uiSectionChanges(context) {
     var _discardTags = {};
+    var _registrationId;
+    var state = reactive({
+        summary: [],
+        downloadHref: '',
+        downloadLabel: t('commit.download_changes'),
+        onHover: function(change) {
+            if (change.entity) {
+                context.surface().selectAll(utilEntityOrMemberSelector([change.entity.id], context.graph())).classed('hover', true);
+            }
+        },
+        onOut: function() {
+            context.surface().selectAll('.hover').classed('hover', false);
+        },
+        onClick: function(change) {
+            if (change.changeType !== 'deleted') {
+                var entity = change.entity;
+                context.map().zoomToEase(entity);
+                context.surface().selectAll(utilEntityOrMemberSelector([entity.id], context.graph())).classed('hover', true);
+            }
+        }
+    });
     fileFetcher.get('discarded')
         .then(function(d) { _discardTags = d; })
         .catch(function() { /* ignore */ });
@@ -34,67 +56,6 @@ export function uiSectionChanges(context) {
         var history = context.history();
         var summary = history.difference().summary();
 
-        var container = selection.selectAll('.commit-section')
-            .data([0]);
-
-        var containerEnter = container.enter()
-            .append('div')
-            .attr('class', 'commit-section');
-
-        containerEnter
-            .append('ul')
-            .attr('class', 'changeset-list');
-
-        container = containerEnter
-            .merge(container);
-
-
-        var items = container.select('ul').selectAll('li')
-            .data(summary);
-
-        var itemsEnter = items.enter()
-            .append('li')
-            .attr('class', 'change-item');
-
-        var buttons = itemsEnter
-            .append('button')
-            .on('mouseover', mouseover)
-            .on('mouseout', mouseout)
-            .on('click', click);
-
-        buttons
-            .each(function(d) {
-                d3_select(this)
-                    .call(svgIcon('#iD-icon-' + d.entity.geometry(d.graph), 'pre-text ' + d.changeType));
-            });
-
-        buttons
-            .append('span')
-            .attr('class', 'change-type')
-            .html(function(d) { return t.html('commit.' + d.changeType) + ' '; });
-
-        buttons
-            .append('strong')
-            .attr('class', 'entity-type')
-            .text(function(d) {
-                var matched = presetManager.match(d.entity, d.graph);
-                return (matched && matched.name()) || utilDisplayType(d.entity.id);
-            });
-
-        buttons
-            .append('span')
-            .attr('class', 'entity-name')
-            .text(function(d) {
-                var name = utilDisplayName(d.entity) || '',
-                    string = '';
-                if (name !== '') {
-                    string += ':';
-                }
-                return string + ' ' + name;
-            });
-
-
-        // Download changeset link
         var changeset = new osmChangeset().update({ id: undefined });
         var changes = history.changes(actionDiscardTags(history.difference(), _discardTags));
 
@@ -104,45 +65,23 @@ export function uiSectionChanges(context) {
         var blob = new Blob([data], {type: 'text/xml;charset=utf-8;'});
         var fileName = 'changes.osc';
 
-        var linkEnter = container.selectAll('.download-changes')
-            .data([0])
-            .enter()
-            .append('a')
-            .attr('class', 'download-changes');
-
-        linkEnter
-            .attr('href', window.URL.createObjectURL(blob))
-            .attr('download', fileName);
-
-        linkEnter
-            .call(svgIcon('#iD-icon-load', 'inline'))
-            .append('span')
-            .call(t.append('commit.download_changes'));
-
-
-        function mouseover(d3_event, d) {
-            if (d.entity) {
-                context.surface().selectAll(
-                    utilEntityOrMemberSelector([d.entity.id], context.graph())
-                ).classed('hover', true);
-            }
-        }
-
-
-        function mouseout() {
-            context.surface().selectAll('.hover')
-                .classed('hover', false);
-        }
-
-
-        function click(d3_event, change) {
-            if (change.changeType !== 'deleted') {
-                var entity = change.entity;
-                context.map().zoomToEase(entity);
-                context.surface().selectAll(utilEntityOrMemberSelector([entity.id], context.graph()))
-                    .classed('hover', true);
-            }
-        }
+        state.downloadHref = window.URL.createObjectURL(blob);
+        state.summary = summary.map(function(d) {
+            var matched = presetManager.match(d.entity, d.graph);
+            var name = utilDisplayName(d.entity) || '';
+            return {
+                id: d.entity.id,
+                entity: d.entity,
+                changeType: d.changeType,
+                changeTypeHtml: t.html('commit.' + d.changeType),
+                icon: '#iD-icon-' + d.entity.geometry(d.graph),
+                entityType: (matched && matched.name()) || utilDisplayType(d.entity.id),
+                entityName: (name !== '' ? ': ' : ' ') + name
+            };
+        });
+        if (!isVueAppInitialized()) return;
+        if (_registrationId) unregisterComponent(_registrationId);
+        _registrationId = registerComponent(ChangesSection, selection.node(), { state: state });
     }
 
     return section;

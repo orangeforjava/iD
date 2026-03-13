@@ -1,24 +1,61 @@
+import { dispatch as d3_dispatch } from 'd3-dispatch';
 import { select as d3_select } from 'd3-selection';
+import { reactive } from 'vue';
 
 import { prefs } from '../../core/preferences';
 import { svgIcon } from '../../svg/icon';
 import { utilArrayIdentical } from '../../util/array';
 import { t } from '../../core/localizer';
-import { utilHighlightEntities } from '../../util';
+import { utilHighlightEntities, utilRebind } from '../../util';
 import { uiSection } from '../section';
 import { validationIssue } from '../../core/validation';
-
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import EntityIssuesSection from '../vue/EntityIssuesSection.vue';
 
 export function uiSectionEntityIssues(context) {
-    // Does the user prefer to expand the active issue?  Useful for viewing tag diff.
-    // Expand by default so first timers see it - #6408, #8143
     var preference = prefs('entity-issues.reference.expanded');
     var _expanded = preference === null ? true : (preference === 'true');
-
     var _entityIDs = [];
     var _issues = [];
     var _activeIssueID;
+    var _registrationId;
 
+    const state = reactive({
+        issuesView: [],
+        activeIssueID: null,
+        onIssueHover: function(issue, val) {
+            var ids = issue.entityIds.filter(function(e) { return _entityIDs.indexOf(e) === -1; });
+            utilHighlightEntities(ids, val, context);
+        },
+        onIssueClick: function(issue) {
+            makeActiveIssue(issue.id);
+            const found = _issues.find(d => d.id === issue.id);
+            const extent = found && found.extent(context.graph());
+            if (extent) context.map().zoomToEase(extent);
+        },
+        toggleInfo: function(issueID) {
+            const issue = state.issuesView.find(d => d.id === issueID);
+            if (!issue) return;
+            issue.expanded = !issue.expanded;
+            _expanded = issue.expanded;
+            prefs('entity-issues.reference.expanded', _expanded);
+        },
+        onFixHover: function(fix, val) {
+            utilHighlightEntities(fix.entityIds || [], val, context);
+        },
+        onFixClick: function(issueView, fixView) {
+            if (!fixView.onClick) return;
+            if (fixView.issue.dateLastRanFix && new Date() - fixView.issue.dateLastRanFix < 1000) return;
+            fixView.issue.dateLastRanFix = new Date();
+            utilHighlightEntities(fixView.issue.entityIds.concat(fixView.entityIds || []), false, context);
+            new Promise(function(resolve, reject) {
+                fixView.onClick(context, resolve, reject);
+                if (fixView.onClick.length <= 1) resolve();
+            }).then(function() {
+                context.validator().validate();
+            });
+        }
+    });
 
     var section = uiSection('entity-issues', context)
         .shouldDisplay(function() {
@@ -31,7 +68,6 @@ export function uiSectionEntityIssues(context) {
 
     context.validator()
         .on('validated.entity_issues', function() {
-            // Refresh on validated events
             reloadIssues();
             section.reRender();
         })
@@ -39,224 +75,63 @@ export function uiSectionEntityIssues(context) {
              makeActiveIssue(issue.id);
         });
 
+    function renderSelectionToText(fn) {
+        if (typeof fn !== 'function') return '';
+        var div = document.createElement('div');
+        fn(d3_select(div));
+        return div.textContent || '';
+    }
+
+    function renderSelectionToHTML(fn) {
+        if (typeof fn !== 'function') return t('inspector.no_documentation_key');
+        var div = document.createElement('div');
+        fn(d3_select(div));
+        return div.innerHTML;
+    }
+
     function reloadIssues() {
         _issues = context.validator().getSharedEntityIssues(_entityIDs, { includeDisabledRules: true });
     }
 
     function makeActiveIssue(issueID) {
         _activeIssueID = issueID;
-        section.selection().selectAll('.issue-container')
-            .classed('active', function(d) { return d.id === _activeIssueID; });
+        state.activeIssueID = issueID;
     }
 
     function renderDisclosureContent(selection) {
-
         selection.classed('grouped-items-area', true);
-
         _activeIssueID = _issues.length > 0 ? _issues[0].id : null;
+        state.activeIssueID = _activeIssueID;
 
-        var containers = selection.selectAll('.issue-container')
-            .data(_issues, function(d) { return d.key; });
-
-        // Exit
-        containers.exit()
-            .remove();
-
-        // Enter
-        var containersEnter = containers.enter()
-            .append('div')
-            .attr('class', 'issue-container');
-
-
-        var itemsEnter = containersEnter
-            .append('div')
-            .attr('class', function(d) { return 'issue severity-' + d.severity; })
-            .on('mouseover.highlight', function(d3_event, d) {
-                // don't hover-highlight the selected entity
-                var ids = d.entityIds
-                    .filter(function(e) { return _entityIDs.indexOf(e) === -1; });
-
-                utilHighlightEntities(ids, true, context);
-            })
-            .on('mouseout.highlight', function(d3_event, d) {
-                var ids = d.entityIds
-                    .filter(function(e) { return _entityIDs.indexOf(e) === -1; });
-
-                utilHighlightEntities(ids, false, context);
-            });
-
-        var labelsEnter = itemsEnter
-            .append('div')
-            .attr('class', 'issue-label');
-
-        var textEnter = labelsEnter
-            .append('button')
-            .attr('class', 'issue-text')
-            .on('click', function(d3_event, d) {
-                makeActiveIssue(d.id); // expand only the clicked item
-
-                const extent = d.extent(context.graph());
-                if (extent) {
-                    context.map().zoomToEase(extent);
-                }
-            });
-
-        textEnter
-            .each(function(d) {
-                d3_select(this)
-                    .call(svgIcon(validationIssue.ICONS[d.severity], 'issue-icon'));
-            });
-
-        textEnter
-            .append('span')
-            .attr('class', 'issue-message');
-
-
-        var infoButton = labelsEnter
-            .append('button')
-            .attr('class', 'issue-info-button')
-            .attr('title', t('icons.information'))
-            .call(svgIcon('#iD-icon-inspect'));
-
-        infoButton
-            .on('click', function (d3_event) {
-                d3_event.stopPropagation();
-                d3_event.preventDefault();
-                this.blur();    // avoid keeping focus on the button - #4641
-
-                var container = d3_select(this.parentNode.parentNode.parentNode);
-                var info = container.selectAll('.issue-info');
-                var isExpanded = info.classed('expanded');
-                _expanded = !isExpanded;
-                prefs('entity-issues.reference.expanded', _expanded);  // update preference
-
-                if (isExpanded) {
-                    info
-                        .transition()
-                        .duration(200)
-                        .style('max-height', '0px')
-                        .style('opacity', '0')
-                        .on('end', function () {
-                            info.classed('expanded', false);
-                        });
-                } else {
-                    info
-                        .classed('expanded', true)
-                        .transition()
-                        .duration(200)
-                        .style('max-height', '200px')
-                        .style('opacity', '1')
-                        .on('end', function () {
-                            info.style('max-height', null);
-                        });
-                }
-            });
-
-        itemsEnter
-            .append('ul')
-            .attr('class', 'issue-fix-list');
-
-        containersEnter
-            .append('div')
-            .attr('class', 'issue-info' + (_expanded ? ' expanded' : ''))
-            .style('max-height', (_expanded ? null : '0'))
-            .style('opacity', (_expanded ? '1' : '0'))
-            .each(function(d) {
-                if (typeof d.reference === 'function') {
-                    d3_select(this)
-                        .call(d.reference);
-                } else {
-                    d3_select(this)
-                        .call(t.append('inspector.no_documentation_key'));
-                }
-            });
-
-
-        // Update
-        containers = containers
-            .merge(containersEnter)
-            .classed('active', function(d) { return d.id === _activeIssueID; });
-
-        containers.selectAll('.issue-message')
-            .text('')
-            .each(function(d) {
-                return d.message(context)(d3_select(this));
-            });
-
-        // fixes
-        var fixLists = containers.selectAll('.issue-fix-list');
-
-        var fixes = fixLists.selectAll('.issue-fix-item')
-            .data(function(d) { return d.fixes ? d.fixes(context) : []; }, function(fix) { return fix.id; });
-
-        fixes.exit()
-            .remove();
-
-        var fixesEnter = fixes.enter()
-            .append('li')
-            .attr('class', 'issue-fix-item');
-
-        var buttons = fixesEnter
-            .append('button')
-            .on('click', function(d3_event, d) {
-                // not all fixes are actionable
-                if (d3_select(this).attr('disabled') || !d.onClick) return;
-
-                // Don't run another fix for this issue within a second of running one
-                // (Necessary for "Select a feature type" fix. Most fixes should only ever run once)
-                if (d.issue.dateLastRanFix && new Date() - d.issue.dateLastRanFix < 1000) return;
-                d.issue.dateLastRanFix = new Date();
-
-                // remove hover-highlighting
-                utilHighlightEntities(d.issue.entityIds.concat(d.entityIds), false, context);
-
-                new Promise(function(resolve, reject) {
-                    d.onClick(context, resolve, reject);
-                    if (d.onClick.length <= 1) {
-                        // if the fix doesn't take any completion parameters then consider it resolved
-                        resolve();
-                    }
+        state.issuesView = _issues.map(function(issue) {
+            return {
+                id: issue.id,
+                key: issue.key,
+                severity: issue.severity,
+                icon: validationIssue.ICONS[issue.severity],
+                message: renderSelectionToText(issue.message(context)),
+                entityIds: issue.entityIds,
+                expanded: _expanded,
+                referenceHtml: renderSelectionToHTML(issue.reference),
+                fixes: (issue.fixes ? issue.fixes(context) : []).map(function(fix) {
+                    var iconName = fix.icon || 'iD-icon-wrench';
+                    if (iconName.startsWith('maki')) iconName += '-15';
+                    return {
+                        id: fix.id,
+                        icon: '#' + iconName,
+                        title: renderSelectionToText(fix.title),
+                        disabledReason: fix.disabledReason,
+                        onClick: fix.onClick,
+                        entityIds: fix.entityIds,
+                        issue: issue
+                    };
                 })
-                .then(function() {
-                    // revalidate whenever the fix has finished running successfully
-                    context.validator().validate();
-                });
-            })
-            .on('mouseover.highlight', function(d3_event, d) {
-                utilHighlightEntities(d.entityIds, true, context);
-            })
-            .on('mouseout.highlight', function(d3_event, d) {
-                utilHighlightEntities(d.entityIds, false, context);
-            });
+            };
+        });
 
-        buttons
-            .each(function(d) {
-                var iconName = d.icon || 'iD-icon-wrench';
-                if (iconName.startsWith('maki')) {
-                    iconName += '-15';
-                }
-                d3_select(this).call(svgIcon('#' + iconName, 'fix-icon'));
-            });
-
-        buttons
-            .append('span')
-            .attr('class', 'fix-message')
-            .each(function(d) { return d.title(d3_select(this)); });
-
-        fixesEnter.merge(fixes)
-            .selectAll('button')
-            .classed('actionable', function(d) {
-                return d.onClick;
-            })
-            .attr('disabled', function(d) {
-                return d.onClick ? null : 'true';
-            })
-            .attr('title', function(d) {
-                if (d.disabledReason) {
-                    return d.disabledReason;
-                }
-                return null;
-            });
+        if (!isVueAppInitialized()) return;
+        if (_registrationId) unregisterComponent(_registrationId);
+        _registrationId = registerComponent(EntityIssuesSection, selection.node(), { state: state });
     }
 
     section.entityIDs = function(val) {
@@ -269,5 +144,12 @@ export function uiSectionEntityIssues(context) {
         return section;
     };
 
-    return section;
+    section.unmount = function() {
+        if (_registrationId) {
+            unregisterComponent(_registrationId);
+            _registrationId = null;
+        }
+    };
+
+    return utilRebind(section, d3_dispatch(), 'on');
 }

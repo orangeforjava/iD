@@ -2,14 +2,17 @@ import {
     select as d3_select
 } from 'd3-selection';
 import { clamp } from 'lodash-es';
+import { reactive } from 'vue';
 
 import { prefs } from '../../core/preferences';
 import { t, localizer } from '../../core/localizer';
-import { svgIcon } from '../../svg/icon';
 import { uiSection } from '../section';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import BackgroundDisplayOptionsSection from '../vue/BackgroundDisplayOptionsSection.vue';
 
 
 export function uiSectionBackgroundDisplayOptions(context) {
+    var _registrationId;
 
     var section = uiSection('background-display-options', context)
         .label(() => t.append('background.display_options'))
@@ -28,6 +31,19 @@ export function uiSectionBackgroundDisplayOptions(context) {
         sharpness: 1
     };
 
+    var state = reactive({
+        minVal: _minVal,
+        maxVal: _maxVal,
+        sliders: [],
+        resetIcon: '#iD-icon-' + (localizer.textDirection() === 'rtl' ? 'redo' : 'undo'),
+        resetAllText: t('background.reset_all'),
+        onInput: function(id, val) { updateValue(id, val); },
+        onReset: function(id) { updateValue(id, 1); },
+        onResetAll: function() {
+            for (var i = 0; i < _sliders.length; i++) updateValue(_sliders[i], 1);
+        }
+    });
+
     function updateValue(d, val) {
         val = clamp(val, _minVal, _maxVal);
 
@@ -42,83 +58,22 @@ export function uiSectionBackgroundDisplayOptions(context) {
     }
 
     function renderDisclosureContent(selection) {
-        var container = selection.selectAll('.display-options-container')
-            .data([0]);
-
-        var containerEnter = container.enter()
-            .append('div')
-            .attr('class', 'display-options-container controls-list');
-
-        // add slider controls
-        var slidersEnter = containerEnter.selectAll('.display-control')
-            .data(_sliders)
-            .enter()
-            .append('label')
-            .attr('class', function(d) { return 'display-control display-control-' + d; });
-
-        slidersEnter
-            .html(function(d) { return t.html('background.' + d); })
-            .append('span')
-            .attr('class', function(d) { return 'display-option-value display-option-value-' + d; });
-
-        var sildersControlEnter = slidersEnter
-            .append('div')
-            .attr('class', 'control-wrap');
-
-        sildersControlEnter
-            .append('input')
-            .attr('class', function(d) { return 'display-option-input display-option-input-' + d; })
-            .attr('type', 'range')
-            .attr('min', _minVal)
-            .attr('max', _maxVal)
-            .attr('step', '0.01')
-            .on('input', function(d3_event, d) {
-                var val = d3_select(this).property('value');
-                if (!val && d3_event && d3_event.target) {
-                    val = d3_event.target.value;
-                }
-                updateValue(d, val);
-            });
-
-        sildersControlEnter
-            .append('button')
-            .attr('title', function(d) { return `${t('background.reset')} ${t('background.' + d)}`; })
-            .attr('class', function(d) { return 'display-option-reset display-option-reset-' + d; })
-            .on('click', function(d3_event, d) {
-                if (d3_event.button !== 0) return;
-                updateValue(d, 1);
-            })
-            .call(svgIcon('#iD-icon-' + (localizer.textDirection() === 'rtl' ? 'redo' : 'undo')));
-
-        // reset all button
-        containerEnter
-            .append('a')
-            .attr('class', 'display-option-resetlink')
-            .attr('role', 'button')
-            .attr('href', '#')
-            .call(t.append('background.reset_all'))
-            .on('click', function(d3_event) {
-                d3_event.preventDefault();
-                for (var i = 0; i < _sliders.length; i++) {
-                    updateValue(_sliders[i], 1);
-                }
-            });
-
-        // update
-        container = containerEnter
-            .merge(container);
-
-        container.selectAll('.display-option-input')
-            .property('value', function(d) { return _options[d]; });
-
-        container.selectAll('.display-option-value')
-            .text(function(d) { return Math.floor(_options[d] * 100) + '%'; });
-
-        container.selectAll('.display-option-reset')
-            .classed('disabled', function(d) { return _options[d] === 1; });
+        state.sliders = _sliders.map(function(id) {
+            return {
+                id: id,
+                label: t.html('background.' + id),
+                value: _options[id],
+                valueText: Math.floor(_options[id] * 100) + '%',
+                resetTitle: t('background.reset') + ' ' + t('background.' + id)
+            };
+        });
+        if (isVueAppInitialized()) {
+            if (_registrationId) unregisterComponent(_registrationId);
+            _registrationId = registerComponent(BackgroundDisplayOptionsSection, selection.node(), { state: state });
+        }
 
         // first time only, set brightness if needed
-        if (containerEnter.size() && _options.brightness !== 1) {
+        if (_options.brightness !== 1) {
             context.background().brightness(_options.brightness);
         }
     }

@@ -1,14 +1,17 @@
 import {
     select as d3_select
 } from 'd3-selection';
+import { reactive } from 'vue';
 
 import { t, localizer } from '../../core/localizer';
 import { geoMetersToOffset, geoOffsetToMeters } from '../../geo';
-import { svgIcon } from '../../svg/icon';
 import { uiSection } from '../section';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import BackgroundOffsetSection from '../vue/BackgroundOffsetSection.vue';
 
 
 export function uiSectionBackgroundOffset(context) {
+    var _registrationId;
 
     var section = uiSection('background-offset', context)
         .label(() => t.append('background.fix_misalignment'))
@@ -24,21 +27,26 @@ export function uiSectionBackgroundOffset(context) {
         ['bottom', [0, 0.5]]
     ];
 
+    var state = reactive({
+        valueText: '0, 0',
+        error: false,
+        isResetDisabled: true,
+        directions: _directions,
+        resetIcon: '#iD-icon-' + (localizer.textDirection() === 'rtl' ? 'redo' : 'undo'),
+        onReset: resetOffset,
+        onNudge: nudge,
+        onInput: function(e) { inputOffset.call(e.target); },
+        onDragStart: dragOffset
+    });
+
 
     function updateValue() {
         var meters = geoOffsetToMeters(context.background().offset());
         var x = +meters[0].toFixed(2);
         var y = +meters[1].toFixed(2);
-
-        context.container().selectAll('.nudge-inner-rect')
-            .select('input')
-            .classed('error', false)
-            .property('value', x + ', ' + y);
-
-        context.container().selectAll('.nudge-reset')
-            .classed('disabled', function() {
-                return (x === 0 && y === 0);
-            });
+        state.error = false;
+        state.valueText = x + ', ' + y;
+        state.isResetDisabled = (x === 0 && y === 0);
     }
 
 
@@ -67,6 +75,7 @@ export function uiSectionBackgroundOffset(context) {
 
         if (d.length !== 2 || !d[0] || !d[1]) {
             input.classed('error', true);
+            state.error = true;
             return;
         }
 
@@ -122,56 +131,9 @@ export function uiSectionBackgroundOffset(context) {
 
 
     function renderDisclosureContent(selection) {
-        var container = selection.selectAll('.nudge-container')
-            .data([0]);
-
-        var containerEnter = container.enter()
-            .append('div')
-            .attr('class', 'nudge-container');
-
-        containerEnter
-            .append('div')
-            .attr('class', 'nudge-instructions')
-            .call(t.append('background.offset'));
-
-        var nudgeWrapEnter = containerEnter
-            .append('div')
-            .attr('class', 'nudge-controls-wrap');
-
-        var nudgeEnter = nudgeWrapEnter
-            .append('div')
-            .attr('class', 'nudge-outer-rect')
-            .on(_pointerPrefix + 'down', dragOffset);
-
-        nudgeEnter
-            .append('div')
-            .attr('class', 'nudge-inner-rect')
-            .append('input')
-            .attr('type', 'text')
-            .attr('aria-label', t('background.offset_label'))
-            .on('change', inputOffset);
-
-        nudgeWrapEnter
-            .append('div')
-            .selectAll('button')
-            .data(_directions).enter()
-            .append('button')
-            .attr('title', function(d) { return t(`background.nudge.${d[0]}`); })
-            .attr('class', function(d) { return d[0] + ' nudge'; })
-            .on('click', function(d3_event, d) {
-                nudge(d[1]);
-            });
-
-        nudgeWrapEnter
-            .append('button')
-            .attr('title', t('background.reset'))
-            .attr('class', 'nudge-reset disabled')
-            .on('click', function(d3_event) {
-                d3_event.preventDefault();
-                resetOffset();
-            })
-            .call(svgIcon('#iD-icon-' + (localizer.textDirection() === 'rtl' ? 'redo' : 'undo')));
-
+        if (!isVueAppInitialized()) return;
+        if (_registrationId) unregisterComponent(_registrationId);
+        _registrationId = registerComponent(BackgroundOffsetSection, selection.node(), { state: state });
         updateValue();
     }
 

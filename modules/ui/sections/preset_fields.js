@@ -8,6 +8,8 @@ import { geoExtent } from '../../geo/extent';
 import { uiField } from '../field';
 import { uiFormFields } from '../form_fields';
 import { uiSection } from '../section';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import PresetFieldsSection from '../vue/PresetFieldsSection.vue';
 
 export function uiSectionPresetFields(context) {
 
@@ -22,8 +24,25 @@ export function uiSectionPresetFields(context) {
     var _presets = [];
     var _tags;
     var _entityIDs;
+    var _registrationId;
+    var _formRef;
+    var _renderVersion = 0;
+
+    var shellState = {
+        renderVersion: _renderVersion,
+        setFormRef: function(el) {
+            _formRef = el;
+        }
+    };
 
     function renderDisclosureContent(selection) {
+        if (isVueAppInitialized()) {
+            if (_registrationId) unregisterComponent(_registrationId);
+            _formRef = null;
+            shellState.renderVersion = ++_renderVersion;
+            _registrationId = registerComponent(PresetFieldsSection, selection.node(), { state: shellState });
+        }
+
         if (!_fieldsArr) {
 
             var graph = context.graph();
@@ -117,11 +136,14 @@ export function uiSectionPresetFields(context) {
 
 
         selection
-            .call(formFields
-                .fieldsArr(_fieldsArr)
-                .state(_state)
-                .klass('grouped-items-area')
-            );
+            .call(function(sel) {
+                var target = _formRef ? selection.select(function() { return _formRef; }) : sel;
+                target.call(formFields
+                    .fieldsArr(_fieldsArr)
+                    .state(_state)
+                    .klass('grouped-items-area')
+                );
+            });
     }
 
     section.presets = function(val) {

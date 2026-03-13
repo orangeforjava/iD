@@ -2,6 +2,7 @@ import { dispatch as d3_dispatch } from 'd3-dispatch';
 import { select as d3_select } from 'd3-selection';
 import _debounce from 'lodash-es/debounce';
 import * as countryCoder from '@rapideditor/country-coder';
+import { reactive } from 'vue';
 
 import { presetManager } from '../../presets';
 import { fileFetcher } from '../../core/file_fetcher';
@@ -13,6 +14,8 @@ import { isColorValid } from '../../osm/tags';
 import { uiLengthIndicator } from '..';
 import { uiTooltip } from '../tooltip';
 import { isEqual } from 'lodash-es';
+import { mountVueComponent } from '../vue/bridge';
+import InputFieldShell from '../vue/InputFieldShell.vue';
 
 export {
     uiFieldText as uiFieldColour,
@@ -37,6 +40,8 @@ export function uiFieldText(field, context) {
     var _entityIDs = [];
     var _tags;
     var _phoneFormats = {};
+    var _refs = null;
+    var _renderVersion = 0;
     const isDirectionField = field.key.split(':').some(keyPart => keyPart === 'direction');
     const formatFloat = localizer.floatFormatter(localizer.languageCode());
     const parseLocaleFloat = localizer.floatParser(localizer.languageCode());
@@ -50,6 +55,32 @@ export function uiFieldText(field, context) {
             })
             .catch(function() { /* ignore */ });
     }
+
+    var shellState = reactive({
+        type: field.type,
+        htmlType: field.type === 'identifier' ? 'text' : field.type,
+        domId: field.domId,
+        readonly: false,
+        disabled: false,
+        placeholder: '',
+        title: undefined,
+        accessories: [],
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+            if (_refs && _refs.input) {
+                utilNoAuto(d3_select(_refs.input));
+            }
+        },
+        setAccessoryRef: function(key, el) {
+            if (!_refs) _refs = {};
+            _refs[key] = el;
+        },
+        onInput: change(true),
+        onBlur: change(),
+        onChange: change()
+    });
+    var renderShell = mountVueComponent(InputFieldShell, context, { state: shellState });
 
 
     function calcLocked() {
@@ -79,32 +110,41 @@ export function uiFieldText(field, context) {
         calcLocked();
         var isLocked = field.locked();
 
-        wrap = selection.selectAll('.form-field-input-wrap')
-            .data([0]);
+        shellState.htmlType = field.type === 'identifier' ? 'text' : field.type;
+        shellState.readonly = !!isLocked;
+        shellState.disabled = !!isLocked;
+        shellState.accessories = [];
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
 
-        wrap = wrap.enter()
-            .append('div')
-            .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
-            .merge(wrap);
+        if (!_refs) {
+            wrap = selection.selectAll('.form-field-input-wrap')
+                .data([0]);
 
-        input = wrap.selectAll('input')
-            .data([0]);
+            wrap = wrap.enter()
+                .append('div')
+                .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
+                .merge(wrap);
 
-        input = input.enter()
-            .append('input')
-            .attr('type', field.type === 'identifier' ? 'text' : field.type)
-            .attr('dir', 'auto')
-            .attr('id', field.domId)
-            .classed(field.type, true)
-            .call(utilNoAuto)
-            .merge(input);
+            input = wrap.selectAll('input')
+                .data([0]);
+
+            input = input.enter()
+                .append('input')
+                .attr('type', field.type === 'identifier' ? 'text' : field.type)
+                .attr('dir', 'auto')
+                .attr('id', field.domId)
+                .classed(field.type, true)
+                .call(utilNoAuto)
+                .merge(input);
+        } else {
+            wrap = d3_select(_refs.wrap);
+            input = d3_select(_refs.input);
+        }
 
         input
             .classed('disabled', !!isLocked)
-            .attr('readonly', isLocked || null)
-            .on('input', change(true))
-            .on('blur', change())
-            .on('change', change());
+            .attr('readonly', isLocked || null);
 
         wrap.call(_lengthIndicator);
 
@@ -117,27 +157,18 @@ export function uiFieldText(field, context) {
             input.attr('type', 'text');
 
             var inc = field.increment;
-
-            var buttons = wrap.selectAll('.increment, .decrement')
-                .data(rtl ? [inc, -inc] : [-inc, inc]);
-
-            buttons.enter()
-                .append('button')
-                .attr('class', function(d) {
-                    var which = (d > 0 ? 'increment' : 'decrement');
-                    return 'form-field-button ' + which;
-                })
-                .attr('title', function(d) {
-                    var which = (d > 0 ? 'increment' : 'decrement');
-                    return t(`inspector.${which}`);
-                })
-                .merge(buttons)
-                .on('click', function(d3_event, d) {
-                    d3_event.preventDefault();
+            shellState.accessories = (rtl ? [inc, -inc] : [-inc, inc]).map(function(d) {
+                var which = (d > 0 ? 'increment' : 'decrement');
+                return {
+                    key: which,
+                    kind: 'button',
+                    className: 'form-field-button ' + which,
+                    title: t(`inspector.${which}`),
+                    icon: null,
+                    onClick: function() {
 
                     // do nothing if this is a multi-selection with mixed values
-                    var isMixed = Array.isArray(_tags[field.key]);
-                    if (isMixed) return;
+                    if (Array.isArray(_tags[field.key])) return;
 
                     var raw_vals = input.node().value || '0';
                     var vals = raw_vals.split(';');
@@ -170,75 +201,64 @@ export function uiFieldText(field, context) {
                     });
                     input.node().value = vals.join(';');
                     change()();
-                });
+                    },
+                    disabled: false
+                };
+            });
         } else if (field.type === 'identifier' && field.urlFormat && field.pattern) {
 
             input.attr('type', 'text');
-            outlinkButton = wrap.selectAll('.foreign-id-permalink')
-                .data([0]);
-
-            outlinkButton = outlinkButton.enter()
-                .append('button')
-                .call(svgIcon('#iD-icon-out-link'))
-                .attr('class', 'form-field-button foreign-id-permalink')
-                .attr('title', function() {
+            shellState.accessories = [{
+                key: 'outlink',
+                kind: 'button',
+                className: 'form-field-button foreign-id-permalink',
+                icon: '#iD-icon-out-link',
+                title: (function() {
                     var domainResults = /^https?:\/\/(.{1,}?)\//.exec(field.urlFormat);
                     if (domainResults.length >= 2 && domainResults[1]) {
                         var domain = domainResults[1];
                         return t('icons.view_on', { domain: domain });
                     }
                     return '';
-                })
-                .merge(outlinkButton);
-            outlinkButton
-                .on('click', function(d3_event) {
-                    d3_event.preventDefault();
+                })(),
+                onClick: function() {
                     var value = validIdentifierValueForLink();
                     if (value) {
                         var url = field.urlFormat.replace(/{value}/, encodeURIComponent(value));
                         window.open(url, '_blank');
                     }
-                })
-                .classed('disabled', () => !validIdentifierValueForLink())
-                .merge(outlinkButton);
+                },
+                disabled: !validIdentifierValueForLink()
+            }];
         } else if (field.type === 'schedule') {
 
             input.attr('type', 'text');
-
-            outlinkButton = wrap.selectAll('.foreign-id-permalink')
-                .data([0]);
-
-            outlinkButton.enter()
-                .append('button')
-                .call(svgIcon('#iD-icon-out-link'))
-                .attr('class', 'form-field-button foreign-id-permalink')
-                .attr('title', () => t('icons.edit_in', { tool: 'YoHours' }))
-                .on('click', function(d3_event) {
-                    d3_event.preventDefault();
-
+            shellState.accessories = [{
+                key: 'outlink',
+                kind: 'button',
+                className: 'form-field-button foreign-id-permalink',
+                icon: '#iD-icon-out-link',
+                title: t('icons.edit_in', { tool: 'YoHours' }),
+                onClick: function() {
                     var value = validIdentifierValueForLink();
                     var url = yoHoursURLFormat.replace(/{value}/, encodeURIComponent(value || ''));
                     window.open(url, '_blank');
-                })
-                .merge(outlinkButton);
+                }
+            }];
         } else if (field.type === 'url') {
             input.attr('type', 'text');
-
-            outlinkButton = wrap.selectAll('.foreign-id-permalink')
-                .data([0]);
-
-            outlinkButton.enter()
-                .append('button')
-                .call(svgIcon('#iD-icon-out-link'))
-                .attr('class', 'form-field-button foreign-id-permalink')
-                .attr('title', () => t('icons.visit_website'))
-                .on('click', function(d3_event) {
-                    d3_event.preventDefault();
-
+            shellState.accessories = [{
+                key: 'outlink',
+                kind: 'button',
+                className: 'form-field-button foreign-id-permalink',
+                icon: '#iD-icon-out-link',
+                title: t('icons.visit_website'),
+                onClick: function() {
                     const value = validIdentifierValueForLink();
                     if (value) window.open(value, '_blank');
-                })
-                .merge(outlinkButton);
+                },
+                disabled: !validIdentifierValueForLink()
+            }];
         } else if (field.type === 'colour') {
             input.attr('type', 'text');
 
@@ -258,45 +278,33 @@ export function uiFieldText(field, context) {
         const colour = utilGetSetValue(input);
 
         if (!isColorValid(colour) && colour !== '') {
-            wrap.selectAll('input.colour-selector').remove();
-            wrap.selectAll('.form-field-button').remove();
+            shellState.accessories = [];
             return;
         }
 
-        var colourSelector = wrap.selectAll('.colour-selector')
-            .data([0]);
-
-        colourSelector
-            .enter()
-            .append('input')
-            .attr('type', 'color')
-            .attr('class', 'colour-selector')
-            .on('input', _debounce(function(d3_event) {
+        shellState.accessories = [{
+            key: 'colour-selector',
+            kind: 'hidden-input',
+            inputType: 'color',
+            className: 'colour-selector',
+            value: colour,
+            onInput: _debounce(function(d3_event) {
                 d3_event.preventDefault();
                 var colour = this.value;
                 if (!isColorValid(colour)) return;
                 utilGetSetValue(input, this.value);
                 change()();
                 updateColourPreview();
-            }, 100));
-        wrap.selectAll('input.colour-selector')
-            .attr('value', colour);
-
-        var chooserButton = wrap.selectAll('.colour-preview')
-            .data([colour]);
-        chooserButton = chooserButton
-            .enter()
-            .append('div')
-            .attr('class', 'form-field-button colour-preview')
-            .append('div')
-            .style('background-color', d => d)
-            .attr('class', 'colour-box');
-        if (colour === '') {
-            chooserButton = chooserButton
-                .call(svgIcon('#iD-icon-edit'));
-        }
-        chooserButton
-            .on('click', () => wrap.select('.colour-selector').node().showPicker());
+            }, 100)
+        }, {
+            key: 'colour-preview',
+            kind: 'color-preview',
+            className: 'form-field-button colour-preview',
+            color: colour,
+            onClick: function() {
+                if (_refs && _refs['colour-selector']) _refs['colour-selector'].showPicker();
+            }
+        }];
     }
 
 
@@ -310,25 +318,25 @@ export function uiFieldText(field, context) {
         const now = new Date();
         const today = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
         if ((field.key === 'check_date' || field.key === 'survey:date') && date !== today) {
-            wrap.selectAll('.date-set-today')
-                .data([0])
-                .enter()
-                .append('button')
-                .attr('class', 'form-field-button date-set-today')
-                .call(svgIcon('#fas-rotate'))
-                .call(uiTooltip().title(() => t.append('inspector.set_today')))
-                .on('click', () => {
+            shellState.accessories = shellState.accessories.filter(a => a.key !== 'date-set-today');
+            shellState.accessories.push({
+                key: 'date-set-today',
+                kind: 'button',
+                className: 'form-field-button date-set-today',
+                icon: '#fas-rotate',
+                title: t('inspector.set_today'),
+                onClick: function() {
                     utilGetSetValue(input, today);
                     change()();
                     updateDateField();
-                });
+                }
+            });
         } else {
-            wrap.selectAll('.date-set-today').remove();
+            shellState.accessories = shellState.accessories.filter(a => a.key !== 'date-set-today');
         }
 
         if (!isDateValid(date) && date !== '') {
-            wrap.selectAll('input.date-selector').remove();
-            wrap.selectAll('.date-calendar').remove();
+            shellState.accessories = shellState.accessories.filter(a => !['date-selector', 'date-calendar'].includes(a.key));
             return;
         }
 
@@ -336,35 +344,30 @@ export function uiFieldText(field, context) {
             // opening of the calendar pick is not yet supported in safari <= 16
             // https://caniuse.com/mdn-api_htmlinputelement_showpicker_date_input
 
-            var dateSelector = wrap.selectAll('.date-selector')
-                .data([0]);
-
-            dateSelector
-                .enter()
-                .append('input')
-                .attr('type', 'date')
-                .attr('class', 'date-selector')
-                .on('input', _debounce(function(d3_event) {
+            shellState.accessories = shellState.accessories.filter(a => !['date-selector', 'date-calendar'].includes(a.key));
+            shellState.accessories.push({
+                key: 'date-selector',
+                kind: 'hidden-input',
+                inputType: 'date',
+                className: 'date-selector',
+                value: date,
+                onInput: _debounce(function(d3_event) {
                     d3_event.preventDefault();
                     var date = this.value;
                     if (!isDateValid(date)) return;
                     utilGetSetValue(input, this.value);
                     change()();
                     updateDateField();
-                }, 100));
-            wrap.selectAll('input.date-selector')
-                .attr('value', date);
-
-            var calendarButton = wrap.selectAll('.date-calendar')
-                .data([date]);
-            calendarButton = calendarButton
-                .enter()
-                .append('button')
-                .attr('class', 'form-field-button date-calendar')
-                .call(svgIcon('#fas-calendar-days'));
-
-            calendarButton
-                .on('click', () => wrap.select('.date-selector').node().showPicker());
+                }, 100)
+            }, {
+                key: 'date-calendar',
+                kind: 'button',
+                className: 'form-field-button date-calendar',
+                icon: '#fas-calendar-days',
+                onClick: function() {
+                    if (_refs && _refs['date-selector']) _refs['date-selector'].showPicker();
+                }
+            });
         }
     }
 
@@ -561,17 +564,19 @@ export function uiFieldText(field, context) {
             .classed('mixed', isMixed);
 
         if (field.type === 'number' || field.type === 'integer') {
-            const buttons = wrap.selectAll('.increment, .decrement');
-            if (isMixed) {
-                buttons.attr('disabled', 'disabled').classed('disabled', true);
-            } else {
-                var raw_vals = tags[field.key] || '0';
-                const canIncDec = raw_vals.split(';').some((val) =>
-                    isFinite(Number(val))
-                    || (isDirectionField && (val.trim().toLowerCase() in cardinal))
-                );
-                buttons.attr('disabled', canIncDec ? null : 'disabled').classed('disabled', !canIncDec);
-            }
+            shellState.accessories = shellState.accessories.map(function(accessory) {
+                if (accessory.key !== 'increment' && accessory.key !== 'decrement') return accessory;
+                if (isMixed) {
+                    accessory.disabled = true;
+                } else {
+                    var raw_vals = tags[field.key] || '0';
+                    const canIncDec = raw_vals.split(';').some((val) =>
+                        isFinite(Number(val)) || (isDirectionField && (val.trim().toLowerCase() in cardinal))
+                    );
+                    accessory.disabled = !canIncDec;
+                }
+                return accessory;
+            });
         }
 
         if (field.type === 'tel') updatePhonePlaceholder();
@@ -580,10 +585,12 @@ export function uiFieldText(field, context) {
 
         if (field.type === 'date') updateDateField();
 
-        if (outlinkButton && !outlinkButton.empty()) {
-            var disabled = !validIdentifierValueForLink() && field.type !== 'schedule';
-            outlinkButton.classed('disabled', disabled);
-        }
+        shellState.accessories = shellState.accessories.map(function(accessory) {
+            if (accessory.key === 'outlink') {
+                accessory.disabled = !validIdentifierValueForLink() && field.type !== 'schedule';
+            }
+            return accessory;
+        });
 
         if (!isMixed) {
             _lengthIndicator.update(tags[field.key]);
@@ -595,6 +602,8 @@ export function uiFieldText(field, context) {
         var node = input.node();
         if (node) node.focus();
     };
+
+    i.unmount = renderShell.unmount;
 
     function combinedEntityExtent() {
         return _entityIDs && _entityIDs.length && utilTotalExtent(_entityIDs, context.graph());

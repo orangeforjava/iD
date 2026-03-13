@@ -18,6 +18,8 @@ import { uiCombobox } from '../combobox';
 import { uiSection } from '../section';
 import { utilDisplayName, utilDisplayType, utilHighlightEntities, utilNoAuto, utilUniqueDomId } from '../../util';
 import { prefs } from '../../core';
+import { registerComponent, unregisterComponent, isVueAppInitialized } from '../vue/app';
+import MemberEditorShell from '../vue/MemberEditorShell.vue';
 
 
 export function uiSectionRawMemberEditor(context) {
@@ -42,6 +44,14 @@ export function uiSectionRawMemberEditor(context) {
     var taginfo = services.taginfo;
     var _entityIDs;
     var _maxMembers = 1000;
+    var _registrationId;
+    var _refs;
+    var _renderVersion = 0;
+
+    var shellState = {
+        renderVersion: 0,
+        setRefs: function(refs) { _refs = refs; }
+    };
 
     function downloadMember(d3_event, d) {
         d3_event.preventDefault();
@@ -122,6 +132,12 @@ export function uiSectionRawMemberEditor(context) {
     }
 
     function renderDisclosureContent(selection) {
+        if (isVueAppInitialized()) {
+            if (_registrationId) unregisterComponent(_registrationId);
+            _refs = null;
+            shellState.renderVersion = ++_renderVersion;
+            _registrationId = registerComponent(MemberEditorShell, selection.node(), { state: shellState });
+        }
 
         var entityID = _entityIDs[0];
 
@@ -139,7 +155,7 @@ export function uiSectionRawMemberEditor(context) {
             });
         });
 
-        var list = selection.selectAll('.member-list')
+        var list = (_refs ? d3_select(_refs.list) : selection.selectAll('.member-list'))
             .data([0]);
 
         list = list.enter()
