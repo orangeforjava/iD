@@ -33,6 +33,11 @@ let _mountEl = null;
 let _counter = 0;
 
 
+export function isVueAppInitialized() {
+  return !!_app;
+}
+
+
 /**
  * Initialize the singleton Vue app.
  * Call this once after iD context is created, before UI components render.

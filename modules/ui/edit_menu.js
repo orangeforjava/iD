@@ -1,353 +1,251 @@
-import { select as d3_select } from 'd3-selection';
 import { dispatch as d3_dispatch } from 'd3-dispatch';
+import { select as d3_select } from 'd3-selection';
+import { reactive } from 'vue';
 
 import { geoVecAdd } from '../geo';
 import { localizer } from '../core/localizer';
-import { uiTooltip } from './tooltip';
 import { utilRebind } from '../util/rebind';
 import { utilHighlightEntities } from '../util/util';
 import { utilGetDimensions } from '../util/dimensions';
-import { svgIcon } from '../svg/icon';
+import { registerComponent, unregisterComponent } from './vue/app';
+import EditMenuShell from './vue/EditMenuShell.vue';
 
 
 export function uiEditMenu(context) {
-    var dispatch = d3_dispatch('toggled');
+  var dispatch = d3_dispatch('toggled');
 
-    var _menu = d3_select(null);
-    var _operations = [];
-    // the position the menu should be displayed relative to
-    var _anchorLoc = [0, 0];
-    var _anchorLocLonLat = [0, 0];
-    // a string indicating how the menu was opened
-    var _triggerType = '';
+  var _registrationId = null;
+  var _selection = null;
+  var _operations = [];
+  var _anchorLoc = [0, 0];
+  var _anchorLocLonLat = [0, 0];
+  var _triggerType = '';
 
-    var _vpTopMargin = 85; // viewport top margin
-    var _vpBottomMargin = 45; // viewport bottom margin
-    var _vpSideMargin = 35;   // viewport side margin
+  var _vpTopMargin = 85;
+  var _vpBottomMargin = 45;
+  var _vpSideMargin = 35;
+  var _verticalPadding = 4;
+  var _tooltipWidth = 210;
+  var _menuSideMargin = 10;
 
-    var _menuTop = false;
-    var _menuHeight;
-    var _menuWidth;
+  var state = reactive({
+    visible: false,
+    operations: [],
+    isTouchMenu: false,
+    showLabels: false,
+    buttonHeight: 34,
+    menuStyle: { padding: _verticalPadding + 'px 0' },
+    tooltipPlacement: 'right',
+    lastPointerUpType: null,
+    labelVersion: 0,
+    iconHref: function(op) {
+      return op.icon && op.icon() || '#iD-operation-' + op.id;
+    },
+    isDisabled: function(op) {
+      return op.disabled();
+    },
+    tooltipText: function(op) {
+      return op.tooltip ? op.tooltip() : '';
+    },
+    handlePointerUp: function(d3_event) {
+      state.lastPointerUpType = d3_event.pointerType;
+    },
+    handleMouseEnter: function(op) {
+      if (state.isDisabled(op)) return;
+      if (op.relatedEntityIds) {
+        utilHighlightEntities(op.relatedEntityIds(), true, context);
+      }
+      if (op.getAuxiliaryGeometry) {
+        drawAuxiliaryGeometry(context, op.getAuxiliaryGeometry());
+      }
+    },
+    handleMouseLeave: function(op) {
+      if (op.relatedEntityIds) {
+        utilHighlightEntities(op.relatedEntityIds(), false, context);
+      }
+      if (op.getAuxiliaryGeometry) {
+        drawAuxiliaryGeometry(context, []);
+      }
+    },
+    handleClick: function(d3_event, operation) {
+      d3_event.stopPropagation();
 
-    // hardcode these values to make menu positioning easier
-    var _verticalPadding = 4;
+      if (operation.relatedEntityIds) {
+        utilHighlightEntities(operation.relatedEntityIds(), false, context);
+      }
 
-    // see also `.edit-menu .tooltip` CSS; include margin
-    var _tooltipWidth = 210;
-
-    // offset the menu slightly from the target location
-    var _menuSideMargin = 10;
-
-    var _tooltips = [];
-
-    var editMenu = function(selection) {
-
-        var isTouchMenu = _triggerType.includes('touch') || _triggerType.includes('pen');
-
-        var ops = _operations.filter(function(op) {
-            return !isTouchMenu || !op.mouseOnly;
-        });
-
-        if (!ops.length) return;
-
-        _tooltips = [];
-
-        // Position the menu above the anchor for stylus and finger input
-        // since the mapper's hand likely obscures the screen below the anchor
-        _menuTop = isTouchMenu;
-
-        // Show labels for touch input since there aren't hover tooltips
-        var showLabels = isTouchMenu;
-
-        var buttonHeight = showLabels ? 32 : 34;
-        if (showLabels) {
-            // Get a general idea of the width based on the length of the label
-            _menuWidth = 52 + Math.min(120, 6 * Math.max.apply(Math, ops.map(function(op) {
-                return op.title.length;
-            })));
-        } else {
-            _menuWidth = 44;
+      if (operation.disabled()) {
+        if (state.lastPointerUpType === 'touch' || state.lastPointerUpType === 'pen') {
+          context.ui().flash
+            .duration(4000)
+            .iconName('#iD-operation-' + operation.id)
+            .iconClass('operation disabled')
+            .label(operation.tooltip())();
+        }
+      } else {
+        if (state.lastPointerUpType === 'touch' || state.lastPointerUpType === 'pen') {
+          context.ui().flash
+            .duration(2000)
+            .iconName('#iD-operation-' + operation.id)
+            .iconClass('operation')
+            .label(operation.annotation() || operation.title)();
         }
 
-        _menuHeight = _verticalPadding * 2 + ops.length * buttonHeight;
+        operation();
+        editMenu.close();
+      }
 
-        _menu = selection
-            .append('div')
-            .attr('class', 'edit-menu')
-            .classed('touch-menu', isTouchMenu)
-            .style('padding', _verticalPadding + 'px 0');
+      state.lastPointerUpType = null;
+    }
+  });
 
-        var buttons = _menu.selectAll('.edit-menu-item')
-            .data(ops);
 
-        // enter
-        var buttonsEnter = buttons.enter()
-            .append('button')
-            .attr('class', function (d) { return 'edit-menu-item edit-menu-item-' + d.id; })
-            .style('height', buttonHeight + 'px')
-            .on('click', click)
-            // don't listen for `mouseup` because we only care about non-mouse pointer types
-            .on('pointerup', pointerup)
-            .on('pointerdown mousedown', function pointerdown(d3_event) {
-                // don't let button presses also act as map input - #1869
-                d3_event.stopPropagation();
-            })
-            .on('mouseenter.highlight', function(d3_event, d) {
-                if (d3_select(this).classed('disabled')) return;
+  function editMenu(selection) {
+    var isTouchMenu = _triggerType.includes('touch') || _triggerType.includes('pen');
+    var ops = _operations.filter(function(op) {
+      return !isTouchMenu || !op.mouseOnly;
+    });
+    if (!ops.length) return;
 
-                if (d.relatedEntityIds) {
-                    utilHighlightEntities(d.relatedEntityIds(), true, context);
-                }
+    _selection = selection;
+    state.isTouchMenu = isTouchMenu;
+    state.showLabels = isTouchMenu;
+    state.buttonHeight = isTouchMenu ? 32 : 34;
+    state.operations = ops;
+    state.labelVersion++;
 
-                if (d.getAuxiliaryGeometry) {
-                    drawAuxiliaryGeometry(context, d.getAuxiliaryGeometry());
-                }
-            })
-            .on('mouseleave.highlight', function(d3_event, d) {
-                if (d.relatedEntityIds) {
-                    utilHighlightEntities(d.relatedEntityIds(), false, context);
-                }
+    if (_registrationId) {
+      unregisterComponent(_registrationId);
+    }
+    _registrationId = registerComponent(EditMenuShell, selection.node(), { state: state });
+    state.visible = true;
 
-                if (d.getAuxiliaryGeometry) {
-                    drawAuxiliaryGeometry(context, []);
-                }
-            });
+    updatePosition();
 
-        buttonsEnter.each(function(d) {
-            var tooltip = uiTooltip()
-                .heading(() => d.title)
-                .title(d.tooltip)
-                .keys([d.keys[0]]);
-
-            _tooltips.push(tooltip);
-
-            d3_select(this)
-                .call(tooltip)
-                .append('div')
-                .attr('class', 'icon-wrap')
-                .call(svgIcon(d.icon && d.icon() || '#iD-operation-' + d.id, 'operation'));
-        });
-
-        if (showLabels) {
-            buttonsEnter.append('span')
-                .attr('class', 'label')
-                .each(function(d) {
-                    d3_select(this).call(d.title);
-                });
+    var initialScale = context.projection.scale();
+    context.map()
+      .on('move.edit-menu', function() {
+        if (initialScale !== context.projection.scale()) {
+          editMenu.close();
         }
+      })
+      .on('drawn.edit-menu', function(info) {
+        if (info.full) updatePosition();
+      });
 
-        // update
-        buttonsEnter
-            .merge(buttons)
-            .classed('disabled', function(d) { return d.disabled(); });
+    dispatch.call('toggled', this, true);
+  }
 
-        updatePosition();
 
-        var initialScale = context.projection.scale();
-        context.map()
-            .on('move.edit-menu', function() {
-                if (initialScale !== context.projection.scale()) {
-                    editMenu.close();
-                }
-            })
-            .on('drawn.edit-menu', function(info) {
-                if (info.full) updatePosition();
-            });
+  function updatePosition() {
+    if (!state.visible) return;
 
-        var lastPointerUpType;
-        // `pointerup` is always called before `click`
-        function pointerup(d3_event) {
-            lastPointerUpType = d3_event.pointerType;
-        }
-
-        function click(d3_event, operation) {
-            d3_event.stopPropagation();
-
-            if (operation.relatedEntityIds) {
-                utilHighlightEntities(operation.relatedEntityIds(), false, context);
-            }
-
-            if (operation.disabled()) {
-                if (lastPointerUpType === 'touch' ||
-                    lastPointerUpType === 'pen') {
-                    // there are no tooltips for touch interactions so flash feedback instead
-                    context.ui().flash
-                        .duration(4000)
-                        .iconName('#iD-operation-' + operation.id)
-                        .iconClass('operation disabled')
-                        .label(operation.tooltip())();
-                }
-            } else {
-                if (lastPointerUpType === 'touch' ||
-                    lastPointerUpType === 'pen') {
-                    context.ui().flash
-                        .duration(2000)
-                        .iconName('#iD-operation-' + operation.id)
-                        .iconClass('operation')
-                        .label(operation.annotation() || operation.title)();
-                }
-
-                operation();
-                editMenu.close();
-            }
-            lastPointerUpType = null;
-        }
-
-        dispatch.call('toggled', this, true);
-    };
-
-    function updatePosition() {
-
-        if (!_menu || _menu.empty()) return;
-
-        var anchorLoc = context.projection(_anchorLocLonLat);
-
-        var viewport = context.surfaceRect();
-
-        if (anchorLoc[0] < 0 ||
-            anchorLoc[0] > viewport.width ||
-            anchorLoc[1] < 0 ||
-            anchorLoc[1] > viewport.height) {
-            // close the menu if it's gone offscreen
-
-            editMenu.close();
-            return;
-        }
-
-        var menuLeft = displayOnLeft(viewport);
-
-        var offset = [0, 0];
-
-        offset[0] = menuLeft ? -1 * (_menuSideMargin + _menuWidth) : _menuSideMargin;
-
-        if (_menuTop) {
-            if (anchorLoc[1] - _menuHeight < _vpTopMargin) {
-                // menu is near top viewport edge, shift downward
-                offset[1] = -anchorLoc[1] + _vpTopMargin;
-            } else {
-                offset[1] = -_menuHeight;
-            }
-        } else {
-            if (anchorLoc[1] + _menuHeight > (viewport.height - _vpBottomMargin)) {
-                // menu is near bottom viewport edge, shift upwards
-                offset[1] = -anchorLoc[1] - _menuHeight + viewport.height - _vpBottomMargin;
-            } else {
-                offset[1] = 0;
-            }
-        }
-
-        var origin = geoVecAdd(anchorLoc, offset);
-        // repositioning the menu to account for the top menu height
-        var _verticalOffset = parseFloat(utilGetDimensions(d3_select('.top-toolbar-wrap'))[1]);
-        origin[1] -= _verticalOffset;
-
-        _menu
-            .style('left', origin[0] + 'px')
-            .style('top', origin[1] + 'px');
-
-        var tooltipSide = tooltipPosition(viewport, menuLeft);
-        _tooltips.forEach(function(tooltip) {
-            tooltip.placement(tooltipSide);
-        });
-
-        function displayOnLeft(viewport) {
-            if (localizer.textDirection() === 'ltr') {
-                if ((anchorLoc[0] + _menuSideMargin + _menuWidth) > (viewport.width - _vpSideMargin)) {
-                    // right menu would be too close to the right viewport edge, go left
-                    return true;
-                }
-                // prefer right menu
-                return false;
-
-            } else { // rtl
-                if ((anchorLoc[0] - _menuSideMargin - _menuWidth) < _vpSideMargin) {
-                    // left menu would be too close to the left viewport edge, go right
-                    return false;
-                }
-                // prefer left menu
-                return true;
-            }
-        }
-
-        function tooltipPosition(viewport, menuLeft) {
-            if (localizer.textDirection() === 'ltr') {
-                if (menuLeft) {
-                    // if there's not room for a right-side menu then there definitely
-                    // isn't room for right-side tooltips
-                    return 'left';
-                }
-                if ((anchorLoc[0] + _menuSideMargin + _menuWidth + _tooltipWidth) > (viewport.width - _vpSideMargin)) {
-                    // right tooltips would be too close to the right viewport edge, go left
-                    return 'left';
-                }
-                // prefer right tooltips
-                return 'right';
-
-            } else { // rtl
-                if (!menuLeft) {
-                    return 'right';
-                }
-                if ((anchorLoc[0] - _menuSideMargin - _menuWidth - _tooltipWidth) < _vpSideMargin) {
-                    // left tooltips would be too close to the left viewport edge, go right
-                    return 'right';
-                }
-                // prefer left tooltips
-                return 'left';
-            }
-        }
+    var menuWidth;
+    if (state.showLabels) {
+      menuWidth = 52 + Math.min(120, 6 * Math.max.apply(Math, state.operations.map(function(op) {
+        return op.id.length;
+      })));
+    } else {
+      menuWidth = 44;
     }
 
-    editMenu.close = function () {
+    var menuHeight = _verticalPadding * 2 + state.operations.length * state.buttonHeight;
+    var menuTop = state.isTouchMenu;
+    var anchorLoc = context.projection(_anchorLocLonLat);
+    var viewport = context.surfaceRect();
 
-        context.map()
-            .on('move.edit-menu', null)
-            .on('drawn.edit-menu', null);
+    if (anchorLoc[0] < 0 || anchorLoc[0] > viewport.width || anchorLoc[1] < 0 || anchorLoc[1] > viewport.height) {
+      editMenu.close();
+      return;
+    }
 
-        _menu.remove();
-        _tooltips = [];
+    var menuLeft = displayOnLeft(viewport, anchorLoc, menuWidth);
+    var offset = [0, 0];
+    offset[0] = menuLeft ? -1 * (_menuSideMargin + menuWidth) : _menuSideMargin;
 
-        // Clean up any auxiliary overlays
-        drawAuxiliaryGeometry(context, []);
+    if (menuTop) {
+      offset[1] = (anchorLoc[1] - menuHeight < _vpTopMargin) ? -anchorLoc[1] + _vpTopMargin : -menuHeight;
+    } else {
+      offset[1] = (anchorLoc[1] + menuHeight > (viewport.height - _vpBottomMargin)) ?
+        -anchorLoc[1] - menuHeight + viewport.height - _vpBottomMargin : 0;
+    }
 
-        dispatch.call('toggled', this, false);
+    var origin = geoVecAdd(anchorLoc, offset);
+    var verticalOffset = parseFloat(utilGetDimensions(d3_select('.top-toolbar-wrap'))[1]);
+    origin[1] -= verticalOffset;
+
+    state.menuStyle = {
+      padding: _verticalPadding + 'px 0',
+      left: origin[0] + 'px',
+      top: origin[1] + 'px'
     };
+    state.tooltipPlacement = tooltipPosition(viewport, anchorLoc, menuLeft, menuWidth);
+  }
 
-    editMenu.anchorLoc = function(val) {
-        if (!arguments.length) return _anchorLoc;
-        _anchorLoc = val;
-        _anchorLocLonLat = context.projection.invert(_anchorLoc);
-        return editMenu;
-    };
 
-    editMenu.triggerType = function(val) {
-        if (!arguments.length) return _triggerType;
-        _triggerType = val;
-        return editMenu;
-    };
+  function displayOnLeft(viewport, anchorLoc, menuWidth) {
+    if (localizer.textDirection() === 'ltr') {
+      return (anchorLoc[0] + _menuSideMargin + menuWidth) > (viewport.width - _vpSideMargin);
+    }
+    return !((anchorLoc[0] - _menuSideMargin - menuWidth) < _vpSideMargin);
+  }
 
-    editMenu.operations = function(val) {
-        if (!arguments.length) return _operations;
-        _operations = val;
-        return editMenu;
-    };
 
-    return utilRebind(editMenu, dispatch, 'on');
+  function tooltipPosition(viewport, anchorLoc, menuLeft, menuWidth) {
+    if (localizer.textDirection() === 'ltr') {
+      if (menuLeft) return 'left';
+      if ((anchorLoc[0] + _menuSideMargin + menuWidth + _tooltipWidth) > (viewport.width - _vpSideMargin)) return 'left';
+      return 'right';
+    }
+    if (!menuLeft) return 'right';
+    if ((anchorLoc[0] - _menuSideMargin - menuWidth - _tooltipWidth) < _vpSideMargin) return 'right';
+    return 'left';
+  }
+
+
+  editMenu.close = function() {
+    context.map().on('move.edit-menu', null).on('drawn.edit-menu', null);
+    if (_registrationId) {
+      unregisterComponent(_registrationId);
+      _registrationId = null;
+    }
+    state.visible = false;
+    drawAuxiliaryGeometry(context, []);
+    dispatch.call('toggled', this, false);
+  };
+
+  editMenu.anchorLoc = function(val) {
+    if (!arguments.length) return _anchorLoc;
+    _anchorLoc = val;
+    _anchorLocLonLat = context.projection.invert(_anchorLoc);
+    return editMenu;
+  };
+
+  editMenu.triggerType = function(val) {
+    if (!arguments.length) return _triggerType;
+    _triggerType = val;
+    return editMenu;
+  };
+
+  editMenu.operations = function(val) {
+    if (!arguments.length) return _operations;
+    _operations = val;
+    return editMenu;
+  };
+
+  return utilRebind(editMenu, dispatch, 'on');
 }
 
 
-// Helper function to draw/remove reflect axis overlay
 function drawAuxiliaryGeometry(context, d) {
-    const surface = context.surface();
-    // Append to the OSM data layer to be in the same coordinate space as map features
-    const container = surface.selectAll('.data-layer.osm .auxiliary');
-    const paths = container.selectAll('path')
-        .data(d, d => d.id);
+  const surface = context.surface();
+  const container = surface.selectAll('.data-layer.osm .auxiliary');
+  const paths = container.selectAll('path').data(d, d => d.id);
 
-    paths.exit().remove();
-    const enter = paths.enter()
-        .append('path');
+  paths.exit().remove();
+  const enter = paths.enter().append('path');
 
-    enter.merge(paths)
-        .attr('class', d => d.klass)
-        .attr('d', d => d.path);
+  enter.merge(paths)
+    .attr('class', d => d.klass)
+    .attr('d', d => d.path);
 }

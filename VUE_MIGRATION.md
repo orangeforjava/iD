@@ -41,7 +41,7 @@ iD 的 UI 是一棵由 d3 管理的 DOM 树。迁移采用**逐组件、自底�
 | `modules/ui/vue/VueRoot.vue` | 根组件：通过 `<Teleport>` 渲染所有注册的 Vue 组件 |
 | `modules/ui/vue/bridge.js` | d3/Vue 桥接：`mountVueComponent()` + `contextKey` |
 | `modules/ui/vue/useContext.js` | Vue composable，用于访问 iD context |
-| `modules/ui/vue/*.vue` | Vue 单文件组件：`ZoomControls.vue`, `ScaleBar.vue`, `VersionBadge.vue`, `GeolocateButton.vue`, `ZoomToSelectionButton.vue`, `AttributionPanel.vue`, `StatusBar.vue` |
+| `modules/ui/vue/*.vue` | Vue 单文件组件：`ZoomControls.vue`, `ScaleBar.vue`, `VersionBadge.vue`, `GeolocateButton.vue`, `ZoomToSelectionButton.vue`, `AttributionPanel.vue`, `StatusBar.vue`, `NoticeBanner.vue`, `SpinnerIndicator.vue`, `FeatureInfoChip.vue`, `IssuesInfoChips.vue`, `ContributorsList.vue`, `SourceSwitchChip.vue`, `AccountLinks.vue`, `RestoreModal.vue`, `FullScreenBinding.vue`, `ViewOnOSMLink.vue`, `ViewOnKeepRightLink.vue`, `ViewOnOsmoseLink.vue`, `DataHeader.vue`, `KeepRightHeader.vue`, `NoteHeader.vue`, `FlashMessage.vue`, `LoadingModal.vue`, `SplashModal.vue`, `InfoPanels.vue`, `EditMenuShell.vue` |
 | `modules/ui/*.js` | 包装文件，导出 d3 兼容函数 |
 | `postcss.config.js` | PostCSS 配置（将 node_modules 排除在 `.ideditor` 前缀之外） |
 | `modules/id.js` | 初始化 Vue app + Element Plus 组件 CSS 引入 |
@@ -330,6 +330,26 @@ Element Plus 组件的样式独立于 iD 的 CSS。PostCSS 的 `.ideditor` 前�
 | 已完成 | `uiZoomToSelection` | 低 | 高（按钮、tooltip） | 缩放到选中对象 |
 | 已完成 | `uiAttribution` | 低 | 低（信息展示） | 底图/叠加层归属信息 |
 | 已完成 | `uiStatus` | 低 | 低（状态信息） | API 状态与重试入口 |
+| 已完成 | `uiNotice` | 低 | 低（提示入口） | 可编辑缩放提示 |
+| 已完成 | `uiSpinner` | 极低 | 低（加载反馈） | OSM 加载状态指示 |
+| 已完成 | `uiFeatureInfo` | 低 | 中（chip + tooltip） | 隐藏要素提示 |
+| 已完成 | `uiIssuesInfo` | 低 | 中（chip + tooltip） | 问题统计提示 |
+| 已完成 | `uiContributors` | 低 | 低（信息展示） | 附近贡献者列表 |
+| 已完成 | `uiSourceSwitch` | 低 | 低（单个 chip） | live/dev 数据源切换 |
+| 已完成 | `uiAccount` | 中 | 中（账户入口） | 含测试兼容回退逻辑 |
+| 已完成 | `uiRestore` | 中 | 低（阻塞弹窗） | 恢复草稿弹窗 |
+| 已完成 | `uiFullScreen` | 极低 | 低（仅快捷键绑定） | 无可见 UI |
+| 已完成 | `uiViewOnOSM` | 中 | 低（外链展示） | 保留 `.what()` 接口 |
+| 已完成 | `uiViewOnKeepRight` | 低 | 低（外链展示） | 保留 `.what()` 接口 |
+| 已完成 | `uiViewOnOsmose` | 低 | 低（外链展示） | 保留 `.what()` 接口 |
+| 已完成 | `uiDataHeader` | 低 | 低（标题展示） | 保留 `.datum()` 接口 |
+| 已完成 | `uiKeepRightHeader` | 低 | 低（标题展示） | 保留 `.issue()` 接口 |
+| 已完成 | `uiNoteHeader` | 低 | 低（标题展示） | 保留 `.note()` 接口 |
+| 已完成 | `uiFlash` | 中 | 中（命令式提示） | Vue 承载内容，保留 imperative API |
+| 已完成 | `uiLoading` | 中 | 低（阻塞弹窗） | Vue 承载 loading modal |
+| 已完成 | `uiSplash` | 中 | 低（欢迎弹窗） | Vue modal + d3 隐私 section 混合 |
+| 已完成 | `uiInfo` | 高 | 中（面板容器） | Vue 管理面板壳，d3 渲染各 panel 内容 |
+| 已完成 | `uiEditMenu` | 高 | 高（弹出菜单） | Vue 管理菜单壳，保留定位/高亮/辅助几何逻辑 |
 | 高 | `uiAccount` | 中 | 高（头像、按钮） | 登录状态、用户菜单 |
 | 中 | `uiFlash` | 中 | 极高（el-message） | 被多个组件依赖 |
 | 低 | `uiTopToolbar` | 高 | 中 | 含 5 个子工具的容器 |

@@ -1,43 +1,16 @@
-import { t } from '../core/localizer';
-import { services } from '../services';
-import { svgIcon } from '../svg/icon';
-import { QAItem } from '../osm';
+import { mountVueComponent } from './vue/bridge';
+import ViewOnOsmoseLink from './vue/ViewOnOsmoseLink.vue';
+
 
 export function uiViewOnOsmose() {
-  let _qaItem;
+  const state = { what: null };
+  const render = mountVueComponent(ViewOnOsmoseLink, {}, { state: state });
 
-  function viewOnOsmose(selection) {
-    let url;
-    if (services.osmose && (_qaItem instanceof QAItem)) {
-      url = services.osmose.itemURL(_qaItem);
-    }
-
-    const link = selection.selectAll('.view-on-osmose')
-      .data(url ? [url] : []);
-
-    // exit
-    link.exit()
-      .remove();
-
-    // enter
-    const linkEnter = link.enter()
-      .append('a')
-        .attr('class', 'view-on-osmose')
-        .attr('target', '_blank')
-        .attr('rel', 'noopener') // security measure
-        .attr('href', d => d)
-        .call(svgIcon('#iD-icon-out-link', 'inline'));
-
-    linkEnter
-      .append('span')
-        .call(t.append('inspector.view_on_osmose'));
-  }
-
-  viewOnOsmose.what = function(val) {
-    if (!arguments.length) return _qaItem;
-    _qaItem = val;
-    return viewOnOsmose;
+  render.what = function(val) {
+    if (!arguments.length) return state.what;
+    state.what = val;
+    return render;
   };
 
-  return viewOnOsmose;
+  return render;
 }
