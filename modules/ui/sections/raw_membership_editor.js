@@ -1,4 +1,5 @@
 import { select as d3_select } from 'd3-selection';
+import { reactive } from 'vue';
 
 import { presetManager } from '../../presets';
 import { t, localizer } from '../../core/localizer';
@@ -55,13 +56,25 @@ export function uiSectionRawMembershipEditor(context) {
     var _registrationId;
     var _refs;
     var _renderVersion = 0;
+    var _didInitialVueSync = false;
     /** @type {Set<string>} relations that were added after this panel was opened */
     const recentlyAdded = new Set();
 
-    var shellState = {
+    var shellState = reactive({
         renderVersion: 0,
-        setRefs: function(refs) { _refs = refs; }
-    };
+        setRefs: function(refs) {
+            _refs = refs;
+            if (!_didInitialVueSync) {
+                _didInitialVueSync = true;
+                section.reRender();
+            }
+        }
+    });
+
+    function hasLiveShellRefs(target) {
+        return !!(target && _refs && _refs.list && _refs.list.isConnected && target.contains(_refs.list) &&
+            _refs.addRow && _refs.addRow.isConnected && target.contains(_refs.addRow));
+    }
 
     function getSharedParentRelations() {
         var parents = [];
@@ -368,10 +381,18 @@ export function uiSectionRawMembershipEditor(context) {
 
     function renderDisclosureContent(selection) {
         if (isVueAppInitialized()) {
-            if (_registrationId) unregisterComponent(_registrationId);
-            _refs = null;
+            var target = selection.node();
             shellState.renderVersion = ++_renderVersion;
-            _registrationId = registerComponent(MembershipEditorShell, selection.node(), { state: shellState });
+            if (!_registrationId || !hasLiveShellRefs(target)) {
+                if (_registrationId) {
+                    unregisterComponent(_registrationId);
+                    _registrationId = null;
+                }
+                _refs = null;
+                _didInitialVueSync = false;
+                _registrationId = registerComponent(MembershipEditorShell, target, { state: shellState });
+            }
+            if (!hasLiveShellRefs(target)) return;
         }
 
         var memberships = getMemberships();
@@ -722,6 +743,16 @@ export function uiSectionRawMembershipEditor(context) {
             recentlyAdded.clear(); // reset when the selected feature changes
         }
         return section;
+    };
+
+
+    section.unmount = function() {
+        if (_registrationId) {
+            unregisterComponent(_registrationId);
+            _registrationId = null;
+        }
+        _refs = null;
+        _didInitialVueSync = false;
     };
 
 

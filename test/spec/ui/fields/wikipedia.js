@@ -1,4 +1,5 @@
 import { setTimeout } from 'node:timers/promises';
+import { initVueApp, destroyVueApp } from '../../../../modules/ui/vue/app.js';
 
 describe('iD.uiFieldWikipedia', function() {
     var entity, context, selection, field;
@@ -23,6 +24,7 @@ describe('iD.uiFieldWikipedia', function() {
         context = iD.coreContext().assetPath('../dist/').init();
         context.history().merge([entity]);
         selection = d3.select(document.createElement('div'));
+        initVueApp(context, selection.node());
         field = iD.presetField('wikipedia', {
             key: 'wikipedia',
             keys: ['wikipedia', 'wikidata'],
@@ -38,6 +40,7 @@ describe('iD.uiFieldWikipedia', function() {
 
     afterEach(function() {
         fetchMock.reset();
+        destroyVueApp();
     });
 
 

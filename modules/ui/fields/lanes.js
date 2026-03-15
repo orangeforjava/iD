@@ -1,7 +1,10 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
+import { select as d3_select } from 'd3-selection';
 
 import { utilRebind } from '../../util/rebind';
 import { utilGetDimensions } from '../../util/dimensions';
+import { mountVueComponent } from '../vue/bridge';
+import LanesFieldShell from '../vue/LanesFieldShell.vue';
 
 
 export function uiFieldLanes(field, context) {
@@ -9,6 +12,20 @@ export function uiFieldLanes(field, context) {
     var LANE_WIDTH = 40;
     var LANE_HEIGHT = 200;
     var _entityIDs = [];
+    var _wrap = d3_select(null);
+    var _surface = d3_select(null);
+    var _refs = null;
+    var _renderVersion = 0;
+
+    var shellState = {
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+            _wrap = refs.wrap ? d3_select(refs.wrap) : d3_select(null);
+            _surface = refs.surface ? d3_select(refs.surface) : d3_select(null);
+        }
+    };
+    var renderShell = mountVueComponent(LanesFieldShell, context, { state: shellState });
 
     function lanes(selection) {
         var lanesData = context.entity(_entityIDs[0]).lanes();
@@ -18,29 +35,39 @@ export function uiFieldLanes(field, context) {
             return;
         }
 
-        var wrap = selection.selectAll('.form-field-input-wrap')
-            .data([0]);
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
 
-        wrap = wrap.enter()
-            .append('div')
-            .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
-            .merge(wrap);
+        if (!_refs) {
+            _wrap = selection.selectAll('.form-field-input-wrap')
+                .data([0]);
 
-        var surface =  wrap.selectAll('.surface')
-            .data([0]);
+            _wrap = _wrap.enter()
+                .append('div')
+                .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
+                .merge(_wrap);
 
-        var d = utilGetDimensions(wrap);
+            _surface = _wrap.selectAll('.surface')
+                .data([0]);
+        }
+
+        var d = utilGetDimensions(_wrap);
         var freeSpace = d[0] - lanesData.lanes.length * LANE_WIDTH * 1.5 + LANE_WIDTH * 0.5;
 
-        surface = surface.enter()
+        _surface = _surface.enter()
             .append('svg')
             .attr('width', d[0])
             .attr('height', 300)
             .attr('class', 'surface')
-            .merge(surface);
+            .merge(_surface);
+
+        _surface
+            .attr('width', d[0])
+            .attr('height', 300)
+            .attr('class', 'surface');
 
 
-        var lanesSelection = surface.selectAll('.lanes')
+        var lanesSelection = _surface.selectAll('.lanes')
             .data([0]);
 
         lanesSelection = lanesSelection.enter()
@@ -128,6 +155,7 @@ export function uiFieldLanes(field, context) {
     lanes.tags = function() {};
     lanes.focus = function() {};
     lanes.off = function() {};
+    lanes.unmount = renderShell.unmount;
 
     return utilRebind(lanes, dispatch, 'on');
 }

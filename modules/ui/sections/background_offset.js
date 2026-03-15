@@ -140,5 +140,12 @@ export function uiSectionBackgroundOffset(context) {
     context.background()
         .on('change.backgroundOffset-update', updateValue);
 
+    section.unmount = function() {
+        if (_registrationId) {
+            unregisterComponent(_registrationId);
+            _registrationId = null;
+        }
+    };
+
     return section;
 }

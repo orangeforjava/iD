@@ -12,6 +12,8 @@ import { osmIntersection, osmInferRestriction, osmTurn, osmWay } from '../../osm
 import { svgLayers, svgLines, svgTurns, svgVertices } from '../../svg';
 import { utilDisplayName, utilDisplayType, utilEntitySelector, utilFunctor, utilRebind } from '../../util';
 import { utilGetDimensions, utilSetDimensions } from '../../util/dimensions';
+import { mountVueComponent } from '../vue/bridge';
+import RestrictionsFieldShell from '../vue/RestrictionsFieldShell.vue';
 
 
 export function uiFieldRestrictions(field, context) {
@@ -26,14 +28,29 @@ export function uiFieldRestrictions(field, context) {
     var _maxDistance = storedDistance ? (+storedDistance) : 30;
     var _initialized = false;
     var _parent = d3_select(null);       // the entire field
+    var _wrap = d3_select(null);         // form-field input wrap
     var _container = d3_select(null);    // just the map
+    var _controls = d3_select(null);     // restriction controls
     var _oldTurns;
     var _graph;
     var _vertexID;
     var _intersection;
     var _fromWayID;
+    var _refs = null;
+    var _renderVersion = 0;
 
     var _lastXPos;
+
+    var shellState = {
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+            _wrap = refs.wrap ? d3_select(refs.wrap) : d3_select(null);
+            _container = refs.container ? d3_select(refs.container) : d3_select(null);
+            _controls = refs.controls ? d3_select(refs.controls) : d3_select(null);
+        }
+    };
+    var renderShell = mountVueComponent(RestrictionsFieldShell, context, { state: shellState });
 
 
     function restrictions(selection) {
@@ -69,42 +86,46 @@ export function uiFieldRestrictions(field, context) {
         }
 
 
-        var wrap = selection.selectAll('.form-field-input-wrap')
-            .data([0]);
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
 
-        wrap = wrap.enter()
-            .append('div')
-            .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
-            .merge(wrap);
+        if (!_refs) {
+            _wrap = selection.selectAll('.form-field-input-wrap')
+                .data([0]);
 
-        var container = wrap.selectAll('.restriction-container')
-            .data([0]);
+            _wrap = _wrap.enter()
+                .append('div')
+                .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
+                .merge(_wrap);
 
-        // enter
-        var containerEnter = container.enter()
-            .append('div')
-            .attr('class', 'restriction-container');
+            var container = _wrap.selectAll('.restriction-container')
+                .data([0]);
 
-        containerEnter
-            .append('div')
-            .attr('class', 'restriction-help');
+            var containerEnter = container.enter()
+                .append('div')
+                .attr('class', 'restriction-container');
 
-        // update
-        _container = containerEnter
-            .merge(container)
-            .call(renderViewer);
+            containerEnter
+                .append('div')
+                .attr('class', 'restriction-help');
 
-        var controls = wrap.selectAll('.restriction-controls')
-            .data([0]);
+            _container = containerEnter
+                .merge(container)
+                .call(renderViewer);
 
-        // enter/update
-        controls.enter()
-            .append('div')
-            .attr('class', 'restriction-controls-container')
-            .append('div')
-            .attr('class', 'restriction-controls')
-            .merge(controls)
-            .call(renderControls);
+            _controls = _wrap.selectAll('.restriction-controls')
+                .data([0]);
+
+            _controls = _controls.enter()
+                .append('div')
+                .attr('class', 'restriction-controls-container')
+                .append('div')
+                .attr('class', 'restriction-controls')
+                .merge(_controls);
+        }
+
+        _container.call(renderViewer);
+        _controls.call(renderControls);
     }
 
 
@@ -649,6 +670,9 @@ export function uiFieldRestrictions(field, context) {
         d3_select(window)
             .on('resize.restrictions', null);
     };
+
+
+    restrictions.unmount = renderShell.unmount;
 
 
     return utilRebind(restrictions, dispatch, 'on');

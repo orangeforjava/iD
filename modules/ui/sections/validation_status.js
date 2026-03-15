@@ -129,5 +129,12 @@ export function uiSectionValidationStatus(context) {
         }, 1000)
     );
 
+    section.unmount = function() {
+        if (_registrationId) {
+            unregisterComponent(_registrationId);
+            _registrationId = null;
+        }
+    };
+
     return section;
 }

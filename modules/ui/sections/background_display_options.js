@@ -78,5 +78,12 @@ export function uiSectionBackgroundDisplayOptions(context) {
         }
     }
 
+    section.unmount = function() {
+        if (_registrationId) {
+            unregisterComponent(_registrationId);
+            _registrationId = null;
+        }
+    };
+
     return section;
 }

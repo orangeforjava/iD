@@ -1,4 +1,5 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
+import { reactive } from 'vue';
 
 import { presetManager } from '../../presets';
 import { t, localizer } from '../../core/localizer';
@@ -27,20 +28,37 @@ export function uiSectionPresetFields(context) {
     var _registrationId;
     var _formRef;
     var _renderVersion = 0;
+    var _didInitialVueSync = false;
 
-    var shellState = {
+    var shellState = reactive({
         renderVersion: _renderVersion,
         setFormRef: function(el) {
             _formRef = el;
+            if (!_didInitialVueSync) {
+                _didInitialVueSync = true;
+                section.reRender();
+            }
         }
-    };
+    });
+
+    function hasLiveFormRef(target) {
+        return !!(target && _formRef && _formRef.isConnected && target.contains(_formRef));
+    }
 
     function renderDisclosureContent(selection) {
         if (isVueAppInitialized()) {
-            if (_registrationId) unregisterComponent(_registrationId);
-            _formRef = null;
+            var target = selection.node();
             shellState.renderVersion = ++_renderVersion;
-            _registrationId = registerComponent(PresetFieldsSection, selection.node(), { state: shellState });
+            if (!_registrationId || !hasLiveFormRef(target)) {
+                if (_registrationId) {
+                    unregisterComponent(_registrationId);
+                    _registrationId = null;
+                }
+                _formRef = null;
+                _didInitialVueSync = false;
+                _registrationId = registerComponent(PresetFieldsSection, target, { state: shellState });
+            }
+            if (!hasLiveFormRef(target)) return;
         }
 
         if (!_fieldsArr) {
@@ -175,6 +193,16 @@ export function uiSectionPresetFields(context) {
             _fieldsArr = null;
         }
         return section;
+    };
+
+    section.unmount = function() {
+        if (_registrationId) {
+            unregisterComponent(_registrationId);
+            _registrationId = null;
+        }
+        formFields.unmount();
+        _formRef = null;
+        _didInitialVueSync = false;
     };
 
     return utilRebind(section, dispatch, 'on');

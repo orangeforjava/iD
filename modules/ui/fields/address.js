@@ -6,6 +6,8 @@ import { presetManager } from '../../presets';
 import { fileFetcher } from '../../core/file_fetcher';
 import { geoChooseEdge, geoSphericalDistance, geoPolygonContainsPolygon, geoPointInPolygon } from '../../geo';
 import { uiCombobox } from '../combobox';
+import { mountVueComponent } from '../vue/bridge';
+import AddressFieldShell from '../vue/AddressFieldShell.vue';
 import { utilArrayUniqBy, utilGetSetValue, utilNoAuto, utilRebind, utilTotalExtent, utilTriggerEvent } from '../../util';
 import { t } from '../../core/localizer';
 
@@ -15,6 +17,8 @@ export function uiFieldAddress(field, context) {
     var _selection = d3_select(null);
     var _wrap = d3_select(null);
     var addrField = presetManager.field('address');   // needed for placeholder strings
+    var _refs = null;
+    var _renderVersion = 0;
 
     var _entityIDs = [];
     var _tags;
@@ -34,6 +38,15 @@ export function uiFieldAddress(field, context) {
             }
         })
         .catch(function() { /* ignore */ });
+
+    var shellState = {
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+            _wrap = refs.wrap ? d3_select(refs.wrap) : d3_select(null);
+        }
+    };
+    var renderShell = mountVueComponent(AddressFieldShell, context, { state: shellState });
 
 
     function getNear(isAddressable, type, searchRadius, resultProp) {
@@ -349,14 +362,18 @@ export function uiFieldAddress(field, context) {
 
     function address(selection) {
         _selection = selection;
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
 
-        _wrap = selection.selectAll('.form-field-input-wrap')
-            .data([0]);
+        if (!_refs) {
+            _wrap = selection.selectAll('.form-field-input-wrap')
+                .data([0]);
 
-        _wrap = _wrap.enter()
-            .append('div')
-            .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
-            .merge(_wrap);
+            _wrap = _wrap.enter()
+                .append('div')
+                .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
+                .merge(_wrap);
+        }
 
         var extent = combinedEntityExtent();
 
@@ -484,6 +501,9 @@ export function uiFieldAddress(field, context) {
         var node = _wrap.selectAll('input').node();
         if (node) node.focus();
     };
+
+
+    address.unmount = renderShell.unmount;
 
 
     return utilRebind(address, dispatch, 'on');

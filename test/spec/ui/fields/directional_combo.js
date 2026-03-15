@@ -1,3 +1,6 @@
+import { setTimeout } from 'node:timers/promises';
+import { initVueApp, destroyVueApp } from '../../../../modules/ui/vue/app.js';
+
 describe('iD.uiFieldDirectionalCombo', () => {
     /** @type {iD.Context} */
     let context;
@@ -7,7 +10,17 @@ describe('iD.uiFieldDirectionalCombo', () => {
     beforeEach(() => {
         context = iD.coreContext().assetPath('../dist/').init();
         selection = d3.select(document.createElement('div'));
+        initVueApp(context, selection.node());
     });
+
+    afterEach(() => {
+        destroyVueApp();
+    });
+
+    async function render(instance) {
+        selection.call(instance);
+        await setTimeout(20);
+    }
 
     describe.each(['cycleway', 'cycleway:both'])('preset uses %s', (commonKey) => {
         /** if commonKey ends with :both, this is the key without :both. and vice-verca */
@@ -20,50 +33,56 @@ describe('iD.uiFieldDirectionalCombo', () => {
             keys: ['cycleway:left', 'cycleway:right'],
         });
 
-        it('populates the left/right fields using :left & :right', () => {
+        it('populates the left/right fields using :left & :right', async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
             instance.tags(undefined, [{ 'cycleway:left': 'lane' }]);
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('lane');
             expect(right.value).toBe('');
         });
 
-        it('populates the left/right fields using :both', () => {
+        it('renders the Vue shell rows and combo mount points', async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
+
+            expect(selection.select('.form-field-input-wrap').empty()).toBe(false);
+            expect(selection.selectAll('.preset-directionalcombo-cyclewayleft').nodes()).toHaveLength(1);
+            expect(selection.selectAll('.preset-directionalcombo-cyclewayright').nodes()).toHaveLength(1);
+            expect(selection.selectAll('.preset-input-directionalcombo-wrap input').nodes()).toHaveLength(2);
+        });
+
+        it('populates the left/right fields using :both', async () => {
+            const instance = iD.uiFieldDirectionalCombo(field, context);
+            await render(instance);
             instance.tags(undefined, [{ 'cycleway:both': 'lane' }]);
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('lane');
             expect(right.value).toBe('lane');
         });
 
-        it('populates the left/right fields using the unprefixed tag', () => {
+        it('populates the left/right fields using the unprefixed tag', async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
             instance.tags(undefined, [{ cycleway: 'lane' }]);
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('lane');
             expect(right.value).toBe('lane');
         });
 
-        it(`setting left & right to the same value will use the ${commonKey}`, () => {
+        it(`setting left & right to the same value will use the ${commonKey}`, async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
             const tags = { 'cycleway:left': 'lane', 'cycleway:right': 'shoulder' };
             instance.tags(undefined, [tags]);
 
             const onChange = vi.fn();
             instance.on('change', v => onChange(v(tags)));
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('lane');
             expect(right.value).toBe('shoulder');
 
@@ -75,17 +94,16 @@ describe('iD.uiFieldDirectionalCombo', () => {
             expect(onChange).toHaveBeenCalledWith({ [commonKey]: 'shoulder' });
         });
 
-        it(`can read the value from ${otherCommonKey}, but writes to ${commonKey}`, () => {
+        it(`can read the value from ${otherCommonKey}, but writes to ${commonKey}`, async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
             let tags = { [otherCommonKey]: 'lane' };
             instance.tags(undefined, [tags]);
 
             const onChange = vi.fn();
             instance.on('change', v => onChange(tags = v(tags)));
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('lane');
             expect(right.value).toBe('lane');
 
@@ -114,24 +132,22 @@ describe('iD.uiFieldDirectionalCombo', () => {
             keys: ['cycleway:left', 'cycleway:right'],
         });
 
-        it('populates the left/right fields using :left/:right and :both', () => {
+        it('populates the left/right fields using :left/:right and :both', async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
             instance.tags(undefined, [{ 'cycleway:left': 'lane', 'cycleway:right': 'lane' }, { 'cycleway:both': 'lane' }]);
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('lane');
             expect(right.value).toBe('lane');
         });
 
-        it('missing explicit direction tag should be reported like a conflicting value', () => {
+        it('missing explicit direction tag should be reported like a conflicting value', async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
             instance.tags(undefined, [{ 'cycleway:left': 'lane' }, { 'cycleway:both': 'lane' }]);
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('lane');
             expect(right.value).toBe('');
         });
@@ -143,50 +159,46 @@ describe('iD.uiFieldDirectionalCombo', () => {
             keys: ['cycleway:left', 'cycleway:right'],
         });
 
-        it('transforms `both` to yes/yes', () => {
+        it('transforms `both` to yes/yes', async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
             instance.tags(undefined, [{ 'cycleway': 'both' }]);
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('yes');
             expect(right.value).toBe('yes');
         });
 
-        it('transforms `left` to yes/no', () => {
+        it('transforms `left` to yes/no', async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
             instance.tags(undefined, [{ 'cycleway': 'left' }]);
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('yes');
             expect(right.value).toBe('no');
         });
 
-        it('preserves other values', () => {
+        it('preserves other values', async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
             instance.tags(undefined, [{ 'cycleway': 'other' }]);
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('other');
             expect(right.value).toBe('other');
         });
 
-        it('can read the value from key=left, but writes to key:left', () => {
+        it('can read the value from key=left, but writes to key:left', async () => {
             const instance = iD.uiFieldDirectionalCombo(field, context);
-            selection.call(instance);
+            await render(instance);
             let tags = { 'cycleway': 'left' };
             instance.tags(undefined, [tags]);
 
             const onChange = vi.fn();
             instance.on('change', v => onChange(tags = v(tags)));
 
-            expect(selection.selectAll('input').nodes()).toHaveLength(2);
-            const [left, right] = selection.selectAll('input').nodes();
+            const [left, right] = selection.selectAll('.preset-input-directionalcombo-wrap input').nodes();
             expect(left.value).toBe('yes');
             expect(right.value).toBe('no');
 

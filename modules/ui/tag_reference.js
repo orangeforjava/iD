@@ -184,5 +184,12 @@ export function uiTagReference(what) {
     return tagReference;
   };
 
+  tagReference.unmount = function() {
+    if (_registrationId) {
+      unregisterComponent(_registrationId);
+      _registrationId = null;
+    }
+  };
+
   return tagReference;
 }

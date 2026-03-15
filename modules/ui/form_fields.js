@@ -4,6 +4,7 @@ import { reactive } from 'vue';
 import { t } from '../core/localizer';
 import { uiCombobox } from './combobox';
 import { utilGetSetValue, utilNoAuto } from '../util';
+import { isVueAppInitialized } from './vue/app';
 import { mountVueComponent } from './vue/bridge';
 import FormFieldsShell from './vue/FormFieldsShell.vue';
 
@@ -15,6 +16,7 @@ export function uiFormFields(context) {
     var _klass = '';
     var _fieldRefs = new Map();
     var _moreInput = null;
+    var _selection = d3_select(null);
 
     var shellState = reactive({
         shownKeys: [],
@@ -27,11 +29,60 @@ export function uiFormFields(context) {
         },
         setMoreInput: function(el) {
             _moreInput = el;
+        },
+        onRendered: function() {
+            renderIntoRefs();
         }
     });
     var render = mountVueComponent(FormFieldsShell, context, { state: shellState });
 
+
+    function renderIntoRefs() {
+        if (_selection.empty()) return;
+
+        var allowedFields = _fieldsArr.filter(function(field) { return field.isAllowed(); });
+        var shown = allowedFields.filter(function(field) { return field.isShown(); });
+        var notShown = allowedFields.filter(function(field) { return !field.isShown(); })
+            .sort(function(a, b) { return (a.universal === b.universal ? 0 : a.universal ? 1 : -1); });
+
+        var moreFields = notShown.map(function(field) {
+            var terms = field.terms();
+            if (field.key) terms.push(field.key);
+            if (field.keys) terms = terms.concat(field.keys);
+            return {
+                display: field.label(),
+                value: field.title(),
+                title: field.title(),
+                field: field,
+                terms: terms
+            };
+        });
+
+        shown.forEach(function(field) {
+            var el = _fieldRefs.get(field.safeid);
+            if (el) d3_select(el).call(field.render);
+        });
+
+        if (_moreInput) {
+            d3_select(_moreInput)
+                .call(utilGetSetValue, '')
+                .call(utilNoAuto)
+                .call(moreCombo
+                    .data(moreFields)
+                    .on('accept', function (d) {
+                        if (!d) return;
+                        var field = d.field;
+                        field.show();
+                        _selection.call(formFields);
+                        field.focus();
+                    })
+                );
+        }
+    }
+
     function formFields(selection) {
+        _selection = selection;
+
         var allowedFields = _fieldsArr.filter(function(field) { return field.isAllowed(); });
         var shown = allowedFields.filter(function(field) { return field.isShown(); });
         var notShown = allowedFields.filter(function(field) { return !field.isShown(); })
@@ -59,26 +110,11 @@ export function uiFormFields(context) {
         shellState.klass = _klass;
         render(selection);
 
-        shown.forEach(function(field) {
-            var el = _fieldRefs.get(field.safeid);
-            if (el) d3_select(el).call(field.render);
-        });
-
-        if (_moreInput) {
-            d3_select(_moreInput)
-                .call(utilGetSetValue, '')
-                .call(utilNoAuto)
-                .call(moreCombo
-                    .data(moreFields)
-                    .on('accept', function (d) {
-                        if (!d) return;
-                        var field = d.field;
-                        field.show();
-                        selection.call(formFields);
-                        field.focus();
-                    })
-                );
+        if (isVueAppInitialized()) {
+            if (!_fieldRefs.size && !(_moreInput && shellState.showMore)) return;
         }
+
+        renderIntoRefs();
     }
 
     formFields.fieldsArr = function(val) {
@@ -99,7 +135,17 @@ export function uiFormFields(context) {
         return formFields;
     };
 
-    formFields.unmount = render.unmount;
+    formFields.unmount = function() {
+        _fieldsArr.forEach(function(field) {
+            if (field && field.unmount) {
+                field.unmount();
+            }
+        });
+        _fieldRefs.clear();
+        _moreInput = null;
+        _selection = d3_select(null);
+        render.unmount();
+    };
 
     return formFields;
 }

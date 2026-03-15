@@ -53,6 +53,8 @@ async function wireRefs() {
     d3_select(labelValueRef.value).html('');
     props.state.renderLabel(d3_select(labelValueRef.value));
   }
+
+  props.state.onRendered();
 }
 
 onMounted(wireRefs);

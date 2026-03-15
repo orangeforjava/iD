@@ -1,13 +1,20 @@
+import { initVueApp, destroyVueApp } from '../../../../modules/ui/vue/app.js';
+
 describe('iD.uiFieldAccess', function() {
     var context, selection, field;
 
     beforeEach(function() {
         context = iD.coreContext().assetPath('../dist/').init();
         selection = d3.select(document.createElement('div'));
+        initVueApp(context, selection.node());
         field = iD.presetField('access', {
             keys: ['access', 'foot', 'motor_vehicle', 'bicycle', 'horse'],
             type: 'access'
         });
+    });
+
+    afterEach(function() {
+        destroyVueApp();
     });
 
     it('creates inputs for a variety of modes of access', function() {

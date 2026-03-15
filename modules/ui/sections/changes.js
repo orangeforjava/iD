@@ -84,5 +84,12 @@ export function uiSectionChanges(context) {
         _registrationId = registerComponent(ChangesSection, selection.node(), { state: state });
     }
 
+    section.unmount = function() {
+        if (_registrationId) {
+            unregisterComponent(_registrationId);
+            _registrationId = null;
+        }
+    };
+
     return section;
 }

@@ -11,6 +11,7 @@ import { uiFields } from './fields';
 import { LANGUAGE_SUFFIX_REGEX } from './fields/localized';
 import { uiTagReference } from './tag_reference';
 import { utilRebind, utilUniqueDomId } from '../util';
+import { isVueAppInitialized } from './vue/app';
 import { mountVueComponent } from './vue/bridge';
 import FieldShell from './vue/FieldShell.vue';
 
@@ -42,6 +43,9 @@ export function uiField(context, presetField, entityIDs, options) {
     var _locked = false;
     var _refs = null;
     var _renderVersion = 0;
+    var _help = null;
+    var _reference = null;
+    var _selection = d3_select(null);
     var _lockedTip = uiTooltip()
         .title(() => t.append('inspector.lock.suggestion', { label: field.title }))
         .placement('bottom');
@@ -60,7 +64,12 @@ export function uiField(context, presetField, entityIDs, options) {
         renderLabel: function(selection) { field.label()(selection); },
         onRemove: remove,
         onRevert: revert,
-        setRefs: function(refs) { _refs = refs; }
+        setRefs: function(refs) { _refs = refs; },
+        onRendered: function() {
+            if (!_selection.empty()) {
+                renderField(_selection);
+            }
+        }
     };
     var renderShell = mountVueComponent(FieldShell, context, { state: shellState });
 
@@ -159,13 +168,7 @@ export function uiField(context, presetField, entityIDs, options) {
     }
 
 
-    field.render = function(selection) {
-        shellState.locked = _locked;
-        shellState.modified = isModified();
-        shellState.present = tagsContainFieldKey();
-        shellState.renderVersion = ++_renderVersion;
-        renderShell(selection);
-
+    function renderField(selection) {
         if (!field.impl) {
             createField();
         }
@@ -192,6 +195,9 @@ export function uiField(context, presetField, entityIDs, options) {
             }
         }
 
+        _help = help;
+        _reference = reference;
+
         var implSelection = _refs ? d3_select(_refs.impl) : selection;
         implSelection.call(field.impl);
 
@@ -215,6 +221,20 @@ export function uiField(context, presetField, entityIDs, options) {
             var wrap = d3_select(selection.node());
             wrap.call(_locked ? _lockedTip : _lockedTip.destroy);
         }
+    }
+
+
+    field.render = function(selection) {
+        _selection = selection;
+        shellState.locked = _locked;
+        shellState.modified = isModified();
+        shellState.present = tagsContainFieldKey();
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
+
+        if (isVueAppInitialized() && !_refs) return;
+
+        renderField(selection);
     };
 
 
@@ -322,6 +342,22 @@ export function uiField(context, presetField, entityIDs, options) {
         if (field.impl) {
             field.impl.focus();
         }
+    };
+
+
+    field.unmount = function() {
+        if (field.impl && field.impl.unmount) {
+            field.impl.unmount();
+        }
+        if (_help && _help.unmount) {
+            _help.unmount();
+        }
+        if (_reference && _reference.unmount) {
+            _reference.unmount();
+        }
+        _refs = null;
+        _selection = d3_select(null);
+        renderShell.unmount();
     };
 
 

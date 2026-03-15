@@ -2,12 +2,16 @@ import { dispatch as d3_dispatch } from 'd3-dispatch';
 import { select as d3_select } from 'd3-selection';
 import { drag as d3_drag } from 'd3-drag';
 import * as countryCoder from '@rapideditor/country-coder';
+import { reactive } from 'vue';
 
 import { fileFetcher } from '../../core/file_fetcher';
 import { localizer, t } from '../../core/localizer';
 import { services } from '../../services';
 import { uiCombobox } from '../combobox';
 import { svgIcon } from '../../svg/icon';
+import { isVueAppInitialized } from '../vue/app';
+import { mountVueComponent } from '../vue/bridge';
+import ComboFieldShell from '../vue/ComboFieldShell.vue';
 
 import { utilKeybinding } from '../../util/keybinding';
 import { utilArrayUniq, utilDetect, utilGetSetValue, utilNoAuto, utilRebind, utilTotalExtent, utilUnicodeCharsCount } from '../../util';
@@ -45,6 +49,36 @@ export function uiFieldCombo(field, context) {
     var _countryCode;
     var _staticPlaceholder;
     var _customOptions = [];
+    var _refs = null;
+    var _renderVersion = 0;
+    var _pendingTags = null;
+
+    var shellState = reactive({
+        type: (_isMulti || _isSemi) ? 'multicombo' : 'combo',
+        domId: field.domId,
+        chipMode: (_isMulti || _isSemi),
+        listClass: (field.key === 'destination' || field.key === 'via') ? 'chiplist full-line-chips' : 'chiplist',
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+            _container = refs.container ? d3_select(refs.container) : d3_select(null);
+            _inputWrap = refs.inputWrap ? d3_select(refs.inputWrap) : d3_select(null);
+
+            if (refs.input) {
+                _input = d3_select(refs.input)
+                    .call(utilNoAuto)
+                    .call(initCombo, _container);
+                bindShellRefs();
+
+                if (_pendingTags) {
+                    const pending = _pendingTags;
+                    _pendingTags = null;
+                    combo.tags(pending);
+                }
+            }
+        }
+    });
+    var renderShell = mountVueComponent(ComboFieldShell, context, { state: shellState });
 
     // initialize deprecated tags array
     var _dataDeprecated = [];
@@ -582,6 +616,69 @@ export function uiFieldCombo(field, context) {
     }
 
 
+    function bindShellRefs() {
+        if (_input.empty() || _container.empty()) return;
+
+        if (_isSemi) {
+            _inputWrap.call(_lengthIndicator);
+        } else if (!_isMulti) {
+            _container.call(_lengthIndicator);
+        }
+
+        _input
+            .on('change', change)
+            .on('blur', change)
+            .on('input', function() {
+                let val = utilGetSetValue(_input);
+                updateIcon(val);
+                if (_isSemi && _tags[field.key]) {
+                    // when adding a new value to existing ones
+                    val += ';' + _tags[field.key];
+                }
+                _lengthIndicator.update(val);
+            })
+            .on('keydown.field', function(d3_event) {
+                switch (d3_event.keyCode) {
+                    case 13: { // Return
+                        var node = _input.node();
+                        if (node) node.blur();   // blurring also enters the value
+                        d3_event.stopPropagation();
+                        break;
+                    }
+                }
+            });
+
+        if (_isMulti || _isSemi) {
+            _container.on('click', function() {
+                window.setTimeout(function() {
+                    var node = _input.node();
+                    if (node) node.focus();
+                }, 10);
+            });
+
+            _combobox.on('accept', function() {
+                var node = _input.node();
+                if (!node) return;
+                node.blur();
+                node.focus();
+            });
+
+            _input.on('focus', function() {
+                _container.classed('active', true);
+            });
+        }
+
+        _combobox
+            .on('cancel', function() {
+                var node = _input.node();
+                if (node) node.blur();
+            })
+            .on('update', function() {
+                updateIcon(utilGetSetValue(_input));
+            });
+    }
+
+
     function removeMultikey(d3_event, d) {
         d3_event.preventDefault();
         d3_event.stopPropagation();
@@ -618,69 +715,70 @@ export function uiFieldCombo(field, context) {
 
 
     function combo(selection) {
-        _container = selection.selectAll('.form-field-input-wrap')
-            .data([0]);
+        if (isVueAppInitialized()) {
+            shellState.renderVersion = ++_renderVersion;
+            renderShell(selection);
 
-        var type = (_isMulti || _isSemi) ? 'multicombo': 'combo';
-        _container = _container.enter()
-            .append('div')
-            .attr('class', 'form-field-input-wrap form-field-input-' + type)
-            .merge(_container);
+            if (!_refs) return;
 
-        if (_isMulti || _isSemi) {
-            _container = _container.selectAll('.chiplist')
+            _container = d3_select(_refs.container);
+            _inputWrap = _refs.inputWrap ? d3_select(_refs.inputWrap) : d3_select(null);
+            _input = d3_select(_refs.input);
+        } else {
+            _container = selection.selectAll('.form-field-input-wrap')
                 .data([0]);
 
-            var listClass = 'chiplist';
-
-            // Use a separate line for each value in the Destinations and Via fields
-            // to mimic highway exit signs
-            if (field.key === 'destination' || field.key === 'via') {
-                listClass += ' full-line-chips';
-            }
-
+            var type = (_isMulti || _isSemi) ? 'multicombo': 'combo';
             _container = _container.enter()
-                .append('ul')
-                .attr('class', listClass)
-                .on('click', function() {
-                    window.setTimeout(function() { _input.node().focus(); }, 10);
-                })
+                .append('div')
+                .attr('class', 'form-field-input-wrap form-field-input-' + type)
                 .merge(_container);
 
+            if (_isMulti || _isSemi) {
+                _container = _container.selectAll('.chiplist')
+                    .data([0]);
 
-            _inputWrap = _container.selectAll('.input-wrap')
-                .data([0]);
+                var listClass = shellState.listClass;
 
-            _inputWrap = _inputWrap.enter()
-                .append('li')
-                .attr('class', 'input-wrap')
-                .merge(_inputWrap);
+                _container = _container.enter()
+                    .append('ul')
+                    .attr('class', listClass)
+                    .merge(_container);
 
-            // Hide 'Add' button if this field uses fixed set of
-            // options and they're all currently used
-            var hideAdd = (!_allowCustomValues && !_comboData.length);
-            _inputWrap.style('display', hideAdd ? 'none' : null);
 
-            _input = _inputWrap.selectAll('input')
-                .data([0]);
-        } else {
-            _input = _container.selectAll('input')
-                .data([0]);
+                _inputWrap = _container.selectAll('.input-wrap')
+                    .data([0]);
+
+                _inputWrap = _inputWrap.enter()
+                    .append('li')
+                    .attr('class', 'input-wrap')
+                    .merge(_inputWrap);
+
+                _input = _inputWrap.selectAll('input')
+                    .data([0]);
+            }
+
         }
 
-        _input = _input.enter()
-            .append('input')
-            .attr('type', 'text')
-            .attr('dir', 'auto')
-            .attr('id', field.domId)
-            .call(utilNoAuto)
-            .call(initCombo, _container)
-            .merge(_input);
+        if (_isMulti || _isSemi) {
+            var hideAdd = (!_allowCustomValues && !_comboData.length);
+            _inputWrap.style('display', hideAdd ? 'none' : null);
+        }
 
-        if (_isSemi) {
-            _inputWrap.call(_lengthIndicator);
-        } else if (!_isMulti) {
-            _container.call(_lengthIndicator);
+        if (!isVueAppInitialized()) {
+            if (!_isMulti && !_isSemi) {
+                _input = _container.selectAll('input')
+                    .data([0]);
+            }
+
+            _input = _input.enter()
+                .append('input')
+                .attr('type', 'text')
+                .attr('dir', 'auto')
+                .attr('id', field.domId)
+                .call(utilNoAuto)
+                .call(initCombo, _container)
+                .merge(_input);
         }
 
         if (_isNetwork) {
@@ -689,47 +787,7 @@ export function uiFieldCombo(field, context) {
             _countryCode = countryCode && countryCode.toLowerCase();
         }
 
-        _input
-            .on('change', change)
-            .on('blur', change)
-            .on('input', function() {
-                let val = utilGetSetValue(_input);
-                updateIcon(val);
-                if (_isSemi && _tags[field.key]) {
-                    // when adding a new value to existing ones
-                    val += ';' + _tags[field.key];
-                }
-                _lengthIndicator.update(val);
-            });
-
-        _input
-            .on('keydown.field', function(d3_event) {
-                switch (d3_event.keyCode) {
-                    case 13: // ↩ Return
-                        _input.node().blur(); // blurring also enters the value
-                        d3_event.stopPropagation();
-                        break;
-                }
-            });
-
-        if (_isMulti || _isSemi) {
-            _combobox
-                .on('accept', function() {
-                    _input.node().blur();
-                    _input.node().focus();
-                });
-
-            _input
-                .on('focus', function() { _container.classed('active', true); });
-        }
-
-        _combobox
-            .on('cancel', function() {
-                _input.node().blur();
-            })
-            .on('update', function() {
-                updateIcon(utilGetSetValue(_input));
-            });
+        bindShellRefs();
     }
 
     function updateIcon(value) {
@@ -773,6 +831,12 @@ export function uiFieldCombo(field, context) {
 
     combo.tags = function(tags) {
         _tags = tags;
+
+        if (_input.empty()) {
+            _pendingTags = tags;
+            return;
+        }
+
         var stringsField = field.resolveReference('stringsCrossReference');
 
         var isMixed = Array.isArray(tags[field.key]);
@@ -1143,7 +1207,8 @@ export function uiFieldCombo(field, context) {
 
 
     combo.focus = function() {
-        _input.node().focus();
+        var node = _input.node();
+        if (node) node.focus();
     };
 
 
@@ -1157,6 +1222,9 @@ export function uiFieldCombo(field, context) {
     function combinedEntityExtent() {
         return _entityIDs && _entityIDs.length && utilTotalExtent(_entityIDs, context.graph());
     }
+
+
+    combo.unmount = renderShell.unmount;
 
 
     return utilRebind(combo, dispatch, 'on');

@@ -28,5 +28,12 @@ export function uiSectionPrivacy(context) {
 
     prefs.onChange('preferences.privacy.thirdpartyicons', section.reRender);
 
+    section.unmount = function() {
+      if (_registrationId) {
+        unregisterComponent(_registrationId);
+        _registrationId = null;
+      }
+    };
+
     return section;
 }

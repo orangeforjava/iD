@@ -31,6 +31,7 @@ const moreInputRef = ref(null);
 async function wireRefs() {
   await nextTick();
   props.state.setMoreInput(moreInputRef.value);
+  props.state.onRendered();
 }
 
 onMounted(wireRefs);

@@ -1,6 +1,7 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
 import { select as d3_select } from 'd3-selection';
 import { isEmpty } from 'lodash-es';
+import { reactive } from 'vue';
 
 import { services } from '../../services';
 import { svgIcon } from '../../svg/icon';
@@ -53,12 +54,23 @@ export function uiSectionRawTagEditor(id, context) {
     var _registrationId;
     var _refs;
     var _renderVersion = 0;
+    var _didInitialVueSync = false;
 
-    var shellState = {
+    var shellState = reactive({
         tagView: _tagView,
         renderVersion: 0,
-        setRefs: function(refs) { _refs = refs; }
-    };
+        setRefs: function(refs) {
+            _refs = refs;
+            if (!_didInitialVueSync) {
+                _didInitialVueSync = true;
+                section.reRender();
+            }
+        }
+    });
+
+    function hasLiveShellRefs(target) {
+        return !!(target && _refs && _refs.options && _refs.options.isConnected && target.contains(_refs.options));
+    }
 
     function interacted() {
         _didInteract = true;
@@ -66,11 +78,19 @@ export function uiSectionRawTagEditor(id, context) {
 
     function renderDisclosureContent(wrap) {
         if (isVueAppInitialized()) {
-            if (_registrationId) unregisterComponent(_registrationId);
-            _refs = null;
+            var target = wrap.node();
             shellState.tagView = _tagView;
             shellState.renderVersion = ++_renderVersion;
-            _registrationId = registerComponent(RawTagEditorShell, wrap.node(), { state: shellState });
+            if (!_registrationId || !hasLiveShellRefs(target)) {
+                if (_registrationId) {
+                    unregisterComponent(_registrationId);
+                    _registrationId = null;
+                }
+                _refs = null;
+                _didInitialVueSync = false;
+                _registrationId = registerComponent(RawTagEditorShell, target, { state: shellState });
+            }
+            if (!hasLiveShellRefs(target)) return;
         }
 
         // remove deleted keys
@@ -109,17 +129,31 @@ export function uiSectionRawTagEditor(id, context) {
             .attr('class', 'raw-tag-options')
             .attr('role', 'tablist');
 
-        var optionEnter = optionsEnter.selectAll('.raw-tag-option')
+        options = optionsEnter.merge(options);
+
+        var option = options.selectAll('.raw-tag-option')
             .data(availableViews, function(d) { return d.id; })
-            .enter();
+            ;
+
+        option.exit()
+            .remove();
+
+        var optionEnter = option.enter()
+            .append('button');
 
         optionEnter
-            .append('button')
+            .attr('role', 'tab')
+            .each(function(d) {
+                d3_select(this)
+                    .call(svgIcon(d.icon));
+            });
+
+        option = optionEnter
+            .merge(option)
             .attr('class', function(d) {
                 return 'raw-tag-option raw-tag-option-' + d.id + (_tagView === d.id ? ' selected' : '');
             })
             .attr('aria-selected', function(d) { return _tagView === d.id; })
-            .attr('role', 'tab')
             .attr('title', function(d) { return t('icons.' + d.id); })
             .on('click', function(d3_event, d) {
                 _tagView = d.id;
@@ -135,10 +169,6 @@ export function uiSectionRawTagEditor(id, context) {
 
                 wrap.selectAll('.tag-list, .add-row')
                     .classed('hide', (d.id !== 'list'));
-            })
-            .each(function(d) {
-                d3_select(this)
-                    .call(svgIcon(d.icon));
             });
 
 
@@ -646,6 +676,16 @@ export function uiSectionRawTagEditor(id, context) {
         if (!arguments.length) return _readOnlyTags;
         _readOnlyTags = val;
         return section;
+    };
+
+
+    section.unmount = function() {
+        if (_registrationId) {
+            unregisterComponent(_registrationId);
+            _registrationId = null;
+        }
+        _refs = null;
+        _didInitialVueSync = false;
     };
 
 

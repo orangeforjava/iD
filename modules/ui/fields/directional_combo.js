@@ -1,14 +1,22 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
 import { select as d3_select } from 'd3-selection';
+import { reactive } from 'vue';
 
 import { utilRebind } from '../../util';
 import { uiFieldCombo } from './combo';
+import { isVueAppInitialized } from '../vue/app';
+import { mountVueComponent } from '../vue/bridge';
+import DirectionalComboFieldShell from '../vue/DirectionalComboFieldShell.vue';
 
 
 export function uiFieldDirectionalCombo(field, context) {
     var dispatch = d3_dispatch('change');
     var items = d3_select(null);
     var wrap = d3_select(null);
+    var _comboRefs = new Map();
+    var _refs = null;
+    var _renderVersion = 0;
+    var _lastTagsArgs = null;
 
     /** @type {Record<string, ReturnType<typeof uiFieldCombo>>} */
     const _combos = {};
@@ -22,12 +30,71 @@ export function uiFieldDirectionalCombo(field, context) {
         };
     }
 
-    function directionalCombo(selection) {
-
-        function stripcolon(s) {
-            return s.replaceAll(':', '');
+    var shellState = reactive({
+        fieldType: field.type,
+        rows: field.keys.map(function(key) {
+            return {
+                key: key,
+                safeKey: stripcolon(key),
+                labelHtml: field.t.html('types.' + key)
+            };
+        }),
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+            wrap = refs.wrap ? d3_select(refs.wrap) : d3_select(null);
+            mountCombosFromRefs();
+        },
+        setComboRef: function(key, el) {
+            if (el) {
+                _comboRefs.set(key, el);
+            } else {
+                _comboRefs.delete(key);
+            }
         }
+    });
+    var renderShell = mountVueComponent(DirectionalComboFieldShell, context, { state: shellState });
 
+
+    function stripcolon(s) {
+        return s.replaceAll(':', '');
+    }
+
+
+    function ensureCombo(key) {
+        if (_combos[key]) return _combos[key];
+
+        const subField = {
+            ...field,
+            type: 'combo',
+            key
+        };
+        const combo = uiFieldCombo(subField, context);
+        combo.on('change', t => change(key, t[key]));
+        _combos[key] = combo;
+        return combo;
+    }
+
+
+    function mountCombosFromRefs() {
+        if (!_refs) return;
+
+        field.keys.forEach(function(key) {
+            var comboRef = _comboRefs.get(key);
+            if (!comboRef) return;
+
+            d3_select(comboRef)
+                .datum(key)
+                .call(ensureCombo(key));
+        });
+
+        if (_lastTagsArgs) {
+            directionalCombo.tags(_lastTagsArgs[0], _lastTagsArgs[1]);
+        }
+    }
+
+
+    function renderLegacy(selection) {
 
         wrap = selection.selectAll('.form-field-input-wrap')
             .data([0]);
@@ -63,23 +130,27 @@ export function uiFieldDirectionalCombo(field, context) {
             .append('div')
             .attr('class', 'preset-input-directionalcombo-wrap form-field-input-wrap')
             .each(function(key) {
-                const subField = {
-                    ...field,
-                    type: 'combo',
-                    key
-                };
-                const combo = uiFieldCombo(subField, context);
-                combo.on('change', t => change(key, t[key]));
-                _combos[key] = combo;
-                d3_select(this).call(combo);
+                d3_select(this).call(ensureCombo(key));
             });
 
         items = items.merge(enter);
 
-        // Update
         wrap.selectAll('.preset-input-directionalcombo')
             .on('change', change)
             .on('blur', change);
+    }
+
+    function directionalCombo(selection) {
+        if (isVueAppInitialized()) {
+            shellState.renderVersion = ++_renderVersion;
+            renderShell(selection);
+            if (_refs) {
+                mountCombosFromRefs();
+            }
+            return;
+        }
+
+        renderLegacy(selection);
     }
 
 
@@ -128,6 +199,8 @@ export function uiFieldDirectionalCombo(field, context) {
 
 
     directionalCombo.tags = function(_ignored, __test_tags /* for unit tests only */) {
+        _lastTagsArgs = [_ignored, __test_tags];
+
         const commonKey = field.key;
         // if commonKey contains ":both", this is the key without :both. and vice-versa
         const otherCommonKey = field.key.includes(':both')
@@ -190,6 +263,14 @@ export function uiFieldDirectionalCombo(field, context) {
     directionalCombo.focus = function() {
         var node = wrap.selectAll('input').node();
         if (node) node.focus();
+    };
+
+
+    directionalCombo.unmount = function() {
+        Object.values(_combos).forEach(function(combo) {
+            if (combo.unmount) combo.unmount();
+        });
+        renderShell.unmount();
     };
 
 

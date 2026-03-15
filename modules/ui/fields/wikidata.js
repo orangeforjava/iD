@@ -1,5 +1,5 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
-import { select as d3_select } from 'd3-selection';
+import { select as d3_select, selectAll as d3_selectAll } from 'd3-selection';
 
 import { actionChangeTags } from '../../actions/change_tags';
 import { services } from '../../services/index';
@@ -7,6 +7,8 @@ import { svgIcon } from '../../svg/icon';
 import { utilGetSetValue, utilNoAuto, utilRebind } from '../../util';
 import { uiCombobox } from '../combobox';
 import { t } from '../../core/localizer';
+import { mountVueComponent } from '../vue/bridge';
+import WikidataFieldShell from '../vue/WikidataFieldShell.vue';
 
 
 export function uiFieldWikidata(field, context) {
@@ -19,6 +21,8 @@ export function uiFieldWikidata(field, context) {
     var _wikidataEntity = null;
     var _wikiURL = '';
     var _entityIDs = [];
+    var _refs = null;
+    var _renderVersion = 0;
 
     var _wikipediaKey = field.keys && field.keys.find(function(key) {
         return key.includes('wikipedia');
@@ -29,9 +33,68 @@ export function uiFieldWikidata(field, context) {
         .caseSensitive(true)
         .minItems(1);
 
+    var shellState = {
+        domId: field.domId,
+        linkTitle: t('icons.view_on', { domain: 'wikidata.org' }),
+        copyTitle: t('icons.copy'),
+        descriptionLabel: t.html('wikidata.description'),
+        identifierLabel: t.html('wikidata.identifier'),
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+        }
+    };
+    var renderShell = mountVueComponent(WikidataFieldShell, context, { state: shellState });
+
 
     function wiki(selection) {
         _selection = selection;
+
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
+
+        if (_refs) {
+            _searchInput = d3_select(_refs.searchInput)
+                .call(utilNoAuto)
+                .attr('id', field.domId)
+                .on('focus', function() {
+                    var node = d3_select(this).node();
+                    node.setSelectionRange(0, node.value.length);
+                })
+                .on('blur', function() {
+                    setLabelForEntity();
+                })
+                .call(combobox.fetcher(fetchWikidataItems));
+
+            d3_select(_refs.linkButton)
+                .on('click', function(d3_event) {
+                    d3_event.preventDefault();
+                    if (_wikiURL) window.open(_wikiURL, '_blank');
+                });
+
+            d3_selectAll([
+                _refs.descriptionCopy,
+                _refs.identifierCopy
+            ].filter(Boolean))
+                .on('click', function(d3_event) {
+                    d3_event.preventDefault();
+                    const text = d3_select(this.parentNode)
+                        .select('input')
+                        .property('value');
+                    navigator.clipboard.writeText(text);
+                });
+
+            combobox.on('accept', function(d) {
+                if (d) {
+                    _qid = d.id;
+                    change();
+                }
+            }).on('cancel', function() {
+                setLabelForEntity();
+            });
+
+            return;
+        }
 
         var wrap = selection.selectAll('.form-field-input-wrap')
             .data([0]);
@@ -136,7 +199,6 @@ export function uiFieldWikidata(field, context) {
 
     function fetchWikidataItems(q, callback) {
         if (!q && _hintKey) {
-            // other tags may be good search terms
             for (var i in _entityIDs) {
                 var entity = context.hasEntity(_entityIDs[i]);
                 if (entity.tags[_hintKey]) {
@@ -175,20 +237,15 @@ export function uiFieldWikidata(field, context) {
         syncTags[field.key] = _qid;
         dispatch.call('change', this, syncTags);
 
-        // attempt asynchronous update of wikidata tag..
         var initGraph = context.graph();
         var initEntityIDs = _entityIDs;
 
         wikidata.entityByQID(_qid, function(err, entity) {
             if (err) return;
-
-            // If graph has changed, we can't apply this update.
             if (context.graph() !== initGraph) return;
-
             if (!entity.sitelinks) return;
 
             var langs = wikidata.languagesToQuery();
-            // use the label and description languages as fallbacks
             ['labels', 'descriptions'].forEach(function(key) {
                 if (!entity[key]) return;
 
@@ -211,21 +268,16 @@ export function uiFieldWikidata(field, context) {
                     if (entity.sitelinks[siteID]) {
                         foundPreferred = true;
                         newWikipediaValue = lang + ':' + entity.sitelinks[siteID].title;
-                        // use the first match
                         break;
                     }
                 }
 
                 if (!foundPreferred) {
-                    // No wikipedia sites available in the user's language or the fallback languages,
-                    // default to any wikipedia sitelink
-
                     var wikiSiteKeys = Object.keys(entity.sitelinks).filter(function(site) {
                         return site.endsWith('wiki');
                     });
 
                     if (wikiSiteKeys.length === 0) {
-                        // if no wikipedia pages are linked to this wikidata entity, delete that tag
                         newWikipediaValue = null;
                     } else {
                         var wikiLang = wikiSiteKeys[0].slice(0, -4).replaceAll('_', '-');
@@ -245,10 +297,9 @@ export function uiFieldWikidata(field, context) {
                 var entity = context.hasEntity(entityID);
                 if (!entity) return null;
 
-                var currTags = Object.assign({}, entity.tags);  // shallow copy
+                var currTags = Object.assign({}, entity.tags);
                 if (newWikipediaValue === null) {
                     if (!currTags[_wikipediaKey]) return null;
-
                     delete currTags[_wikipediaKey];
                 } else {
                     currTags[_wikipediaKey] = newWikipediaValue;
@@ -259,7 +310,6 @@ export function uiFieldWikidata(field, context) {
 
             if (!actions.length) return;
 
-            // Coalesce the update of wikidata tag into the previous tag change
             context.replace(
                 function actionUpdateWikipediaTags(graph) {
                     actions.forEach(function(action) {
@@ -269,16 +319,11 @@ export function uiFieldWikidata(field, context) {
                 },
                 context.history().undoAnnotation()
             );
-
-            // do not dispatch.call('change') here, because entity_editor
-            // changeTags() is not intended to be called asynchronously
         });
     }
 
     function setLabelForEntity() {
-        var label = {
-          value: ''
-        };
+        var label = { value: '' };
         if (_wikidataEntity) {
             label = entityPropertyForDisplay(_wikidataEntity, 'labels');
             if (label.value.length === 0) {
@@ -291,7 +336,6 @@ export function uiFieldWikidata(field, context) {
 
 
     wiki.tags = function(tags) {
-
         var isMixed = Array.isArray(tags[field.key]);
         _searchInput
             .attr('title', isMixed ? tags[field.key].filter(Boolean).join('\n') : null)
@@ -300,12 +344,11 @@ export function uiFieldWikidata(field, context) {
 
         _qid = typeof tags[field.key] === 'string' && tags[field.key] || '';
 
-        if (!/^Q[0-9]*$/.test(_qid)) {   // not a proper QID
+        if (!/^Q[0-9]*$/.test(_qid)) {
             unrecognized();
             return;
         }
 
-        // QID value in correct format
         _wikiURL = 'https://wikidata.org/wiki/' + _qid;
         wikidata.entityByQID(_qid, function(err, entity) {
             if (err) {
@@ -318,8 +361,7 @@ export function uiFieldWikidata(field, context) {
 
             var description = entityPropertyForDisplay(entity, 'descriptions');
 
-            _selection.select('button.wiki-link')
-                .classed('disabled', false);
+            _selection.select('button.wiki-link').classed('disabled', false);
 
             _selection.select('.preset-wikidata-description')
                 .style('display', function(){
@@ -338,18 +380,13 @@ export function uiFieldWikidata(field, context) {
         });
 
 
-        // not a proper QID
         function unrecognized() {
             _wikidataEntity = null;
             setLabelForEntity();
 
-            _selection.select('.preset-wikidata-description')
-                .style('display', 'none');
-            _selection.select('.preset-wikidata-identifier')
-                .style('display', 'none');
-
-            _selection.select('button.wiki-link')
-                .classed('disabled', true);
+            _selection.select('.preset-wikidata-description').style('display', 'none');
+            _selection.select('.preset-wikidata-identifier').style('display', 'none');
+            _selection.select('button.wiki-link').classed('disabled', true);
 
             if (_qid && _qid !== '') {
                 _wikiURL = 'https://wikidata.org/wiki/Special:Search?search=' + _qid;
@@ -365,14 +402,12 @@ export function uiFieldWikidata(field, context) {
         var propObj = wikidataEntity[propKey];
         var langKeys = Object.keys(propObj);
         if (langKeys.length === 0) return blankResponse;
-        // sorted by priority, since we want to show the user's language first if possible
         var langs = wikidata.languagesToQuery();
         for (var i in langs) {
             var lang = langs[i];
             var valueObj = propObj[lang];
             if (valueObj && valueObj.value && valueObj.value.length > 0) return valueObj;
         }
-        // default to any available value
         return propObj[langKeys[0]];
     }
 
@@ -387,6 +422,9 @@ export function uiFieldWikidata(field, context) {
     wiki.focus = function() {
         _searchInput.node().focus();
     };
+
+
+    wiki.unmount = renderShell.unmount;
 
 
     return utilRebind(wiki, dispatch, 'on');

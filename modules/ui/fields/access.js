@@ -1,7 +1,9 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
-import { select as d3_select } from 'd3-selection';
+import { select as d3_select, selectAll as d3_selectAll } from 'd3-selection';
 
 import { uiCombobox } from '../combobox';
+import { mountVueComponent } from '../vue/bridge';
+import AccessFieldShell from '../vue/AccessFieldShell.vue';
 import { utilGetSetValue, utilNoAuto, utilRebind } from '../../util';
 import { t } from '../../core/localizer';
 
@@ -9,71 +11,105 @@ export function uiFieldAccess(field, context) {
     var dispatch = d3_dispatch('change');
     var items = d3_select(null);
     var _tags;
+    var _inputRefs = new Map();
+    var _refs = null;
+    var _renderVersion = 0;
+
+    var shellState = {
+        rows: field.keys.map(function(key) {
+            return {
+                key: key,
+                labelHtml: field.t.html('types.' + key)
+            };
+        }),
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+        },
+        setInputRef: function(key, el) {
+            if (el) _inputRefs.set(key, el);
+            else _inputRefs.delete(key);
+        }
+    };
+    var renderShell = mountVueComponent(AccessFieldShell, context, { state: shellState });
 
     function access(selection) {
-        var wrap = selection.selectAll('.form-field-input-wrap')
-            .data([0]);
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
 
-        wrap = wrap.enter()
-            .append('div')
-            .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
-            .merge(wrap);
+        if (!_refs) {
+            var wrap = selection.selectAll('.form-field-input-wrap')
+                .data([0]);
 
-        var list = wrap.selectAll('ul')
-            .data([0]);
+            wrap = wrap.enter()
+                .append('div')
+                .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
+                .merge(wrap);
 
-        list = list.enter()
-            .append('ul')
-            .attr('class', 'rows')
-            .merge(list);
+            var list = wrap.selectAll('ul')
+                .data([0]);
 
+            list = list.enter()
+                .append('ul')
+                .attr('class', 'rows')
+                .merge(list);
 
-        items = list.selectAll('li')
-            .data(field.keys);
+            items = list.selectAll('input.preset-input-access')
+                .data(field.keys, function(d) { return d; });
 
-        // Enter
-        var enter = items.enter()
-            .append('li')
-            .attr('class', function(d) { return 'labeled-input preset-access-' + d; });
+            var enter = items.enter()
+                .append('li')
+                .attr('class', function(d) { return 'labeled-input preset-access-' + d; });
 
-        enter
-            .append('div')
-            .attr('class', 'label preset-label-access')
-            .attr('for', function(d) { return 'preset-input-access-' + d; })
-            .html(function(d) { return field.t.html('types.' + d); });
+            enter
+                .append('div')
+                .attr('class', 'label preset-label-access')
+                .attr('for', function(d) { return 'preset-input-access-' + d; })
+                .html(function(d) { return field.t.html('types.' + d); });
 
-        enter
-            .append('div')
-            .attr('class', 'preset-input-access-wrap')
-            .append('input')
-            .attr('type', 'text')
-            .attr('class', function(d) { return 'preset-input-access preset-input-access-' + d; })
+            enter
+                .append('div')
+                .attr('class', 'preset-input-access-wrap')
+                .append('input')
+                .attr('type', 'text')
+                .attr('class', function(d) { return 'preset-input-access preset-input-access-' + d; })
+                .attr('data-access-key', function(d) { return d; });
+
+            items = list.selectAll('input.preset-input-access');
+        } else {
+            items = d3_selectAllInputs();
+        }
+
+        items
             .call(utilNoAuto)
-            .each(function(d) {
+            .each(function() {
+                var key = this.dataset.accessKey;
                 d3_select(this)
-                    .call(uiCombobox(context, 'access-' + d)
-                        .data(access.options(d))
+                    .call(uiCombobox(context, 'access-' + key)
+                        .data(access.options(key))
                     );
-            });
-
-
-        // Update
-        items = items.merge(enter);
-
-        wrap.selectAll('.preset-input-access')
+            })
             .on('change', change)
             .on('blur', change);
     }
 
 
-    function change(d3_event, d) {
+    function d3_selectAllInputs() {
+        return d3_selectAll(field.keys.map(function(key) {
+            return _inputRefs.get(key);
+        }).filter(Boolean));
+    }
+
+
+    function change() {
         var tag = {};
+        var key = this.dataset.accessKey;
         var value = context.cleanTagValue(utilGetSetValue(d3_select(this)));
 
         // don't override multiple values with blank string
-        if (!value && typeof _tags[d] !== 'string') return;
+        if (!value && typeof _tags[key] !== 'string') return;
 
-        tag[d] = value || undefined;
+        tag[key] = value || undefined;
         dispatch.call('change', this, tag);
     }
 
@@ -112,163 +148,42 @@ export function uiFieldAccess(field, context) {
 
     const placeholdersByTag = {
         highway: {
-            footway: {
-                foot: 'designated',
-                motor_vehicle: 'no'
-            },
-            steps: {
-                foot: 'yes',
-                motor_vehicle: 'no',
-                bicycle: 'no',
-                horse: 'no'
-            },
-            ladder: {
-                foot: 'yes',
-                motor_vehicle: 'no',
-                bicycle: 'no',
-                horse: 'no'
-            },
-            pedestrian: {
-                foot: 'yes',
-                motor_vehicle: 'no'
-            },
-            cycleway: {
-                motor_vehicle: 'no',
-                bicycle: 'designated'
-            },
-            bridleway: {
-                motor_vehicle: 'no',
-                horse: 'designated'
-            },
-            path: {
-                foot: 'yes',
-                motor_vehicle: 'no',
-                bicycle: 'yes',
-                horse: 'yes'
-            },
-            motorway: {
-                foot: 'no',
-                motor_vehicle: 'yes',
-                bicycle: 'no',
-                horse: 'no'
-            },
-            trunk: {
-                motor_vehicle: 'yes'
-            },
-            primary: {
-                foot: 'yes',
-                motor_vehicle: 'yes',
-                bicycle: 'yes',
-                horse: 'yes'
-            },
-            secondary: {
-                foot: 'yes',
-                motor_vehicle: 'yes',
-                bicycle: 'yes',
-                horse: 'yes'
-            },
-            tertiary: {
-                foot: 'yes',
-                motor_vehicle: 'yes',
-                bicycle: 'yes',
-                horse: 'yes'
-            },
-            residential: {
-                foot: 'yes',
-                motor_vehicle: 'yes',
-                bicycle: 'yes',
-                horse: 'yes'
-            },
-            unclassified: {
-                foot: 'yes',
-                motor_vehicle: 'yes',
-                bicycle: 'yes',
-                horse: 'yes'
-            },
-            service: {
-                foot: 'yes',
-                motor_vehicle: 'yes',
-                bicycle: 'yes',
-                horse: 'yes'
-            },
-            motorway_link: {
-                foot: 'no',
-                motor_vehicle: 'yes',
-                bicycle: 'no',
-                horse: 'no'
-            },
-            trunk_link: {
-                motor_vehicle: 'yes'
-            },
-            primary_link: {
-                foot: 'yes',
-                motor_vehicle: 'yes',
-                bicycle: 'yes',
-                horse: 'yes'
-            },
-            secondary_link: {
-                foot: 'yes',
-                motor_vehicle: 'yes',
-                bicycle: 'yes',
-                horse: 'yes'
-            },
-            tertiary_link: {
-                foot: 'yes',
-                motor_vehicle: 'yes',
-                bicycle: 'yes',
-                horse: 'yes'
-            },
-            construction: {
-                access: 'no'
-            },
-            busway: {
-                access: 'no',
-                bus: 'designated',
-                emergency: 'yes',
-            }
+            footway: { foot: 'designated', motor_vehicle: 'no' },
+            steps: { foot: 'yes', motor_vehicle: 'no', bicycle: 'no', horse: 'no' },
+            ladder: { foot: 'yes', motor_vehicle: 'no', bicycle: 'no', horse: 'no' },
+            pedestrian: { foot: 'yes', motor_vehicle: 'no' },
+            cycleway: { motor_vehicle: 'no', bicycle: 'designated' },
+            bridleway: { motor_vehicle: 'no', horse: 'designated' },
+            path: { foot: 'yes', motor_vehicle: 'no', bicycle: 'yes', horse: 'yes' },
+            motorway: { foot: 'no', motor_vehicle: 'yes', bicycle: 'no', horse: 'no' },
+            trunk: { motor_vehicle: 'yes' },
+            primary: { foot: 'yes', motor_vehicle: 'yes', bicycle: 'yes', horse: 'yes' },
+            secondary: { foot: 'yes', motor_vehicle: 'yes', bicycle: 'yes', horse: 'yes' },
+            tertiary: { foot: 'yes', motor_vehicle: 'yes', bicycle: 'yes', horse: 'yes' },
+            residential: { foot: 'yes', motor_vehicle: 'yes', bicycle: 'yes', horse: 'yes' },
+            unclassified: { foot: 'yes', motor_vehicle: 'yes', bicycle: 'yes', horse: 'yes' },
+            service: { foot: 'yes', motor_vehicle: 'yes', bicycle: 'yes', horse: 'yes' },
+            motorway_link: { foot: 'no', motor_vehicle: 'yes', bicycle: 'no', horse: 'no' },
+            trunk_link: { motor_vehicle: 'yes' },
+            primary_link: { foot: 'yes', motor_vehicle: 'yes', bicycle: 'yes', horse: 'yes' },
+            secondary_link: { foot: 'yes', motor_vehicle: 'yes', bicycle: 'yes', horse: 'yes' },
+            tertiary_link: { foot: 'yes', motor_vehicle: 'yes', bicycle: 'yes', horse: 'yes' },
+            construction: { access: 'no' },
+            busway: { access: 'no', bus: 'designated', emergency: 'yes' }
         },
         barrier: {
-            bollard: {
-                access: 'no',
-                bicycle: 'yes',
-                foot: 'yes'
-            },
-            bus_trap: {
-                motor_vehicle: 'no',
-                psv: 'yes',
-                foot: 'yes',
-                bicycle: 'yes'
-            },
-            city_wall: {
-                access: 'no'
-            },
-            coupure: {
-                access: 'yes'
-            },
-            cycle_barrier: {
-                motor_vehicle: 'no'
-            },
-            ditch: {
-                access: 'no'
-            },
-            entrance: {
-                access: 'yes'
-            },
-            fence: {
-                access: 'no'
-            },
-            hedge: {
-                access: 'no'
-            },
-            jersey_barrier: {
-                access: 'no'
-            },
-            motorcycle_barrier: {
-                motor_vehicle: 'no'
-            },
-            rail_guard: {
-                access: 'no'
-            }
+            bollard: { access: 'no', bicycle: 'yes', foot: 'yes' },
+            bus_trap: { motor_vehicle: 'no', psv: 'yes', foot: 'yes', bicycle: 'yes' },
+            city_wall: { access: 'no' },
+            coupure: { access: 'yes' },
+            cycle_barrier: { motor_vehicle: 'no' },
+            ditch: { access: 'no' },
+            entrance: { access: 'yes' },
+            fence: { access: 'no' },
+            hedge: { access: 'no' },
+            jersey_barrier: { access: 'no' },
+            motorcycle_barrier: { motor_vehicle: 'no' },
+            rail_guard: { access: 'no' }
         }
     };
 
@@ -276,7 +191,7 @@ export function uiFieldAccess(field, context) {
     access.tags = function(tags) {
         _tags = tags;
 
-        utilGetSetValue(items.selectAll('.preset-input-access'), function(d) {
+        utilGetSetValue(items, function(d) {
                 return typeof tags[d] === 'string' ? tags[d] : '';
             })
             .classed('mixed', function(accessField) {
@@ -289,7 +204,6 @@ export function uiFieldAccess(field, context) {
             .attr('placeholder', function(accessField) {
                 let placeholders = getAllPlaceholders(tags, accessField);
                 if (new Set(placeholders).size === 1) {
-                    // all objects have the same implied access
                     return placeholders[0];
                 } else {
                     return t('inspector.multiple_values');
@@ -299,7 +213,6 @@ export function uiFieldAccess(field, context) {
             function getAllPlaceholders(tags, accessField) {
                 let allTags = tags[Symbol.for('allTags')];
                 if (allTags && allTags.length > 1) {
-                    // multi selection
                     const placeholders = [];
                     allTags.forEach(tags => {
                         placeholders.push(getPlaceholder(tags, accessField));
@@ -311,26 +224,19 @@ export function uiFieldAccess(field, context) {
             }
 
             function getPlaceholder(tags, accessField) {
-                if (tags[accessField]) {
-                    return tags[accessField];
-                }
-                // implied access
-                // motorroad: https://wiki.openstreetmap.org/wiki/OSM_tags_for_routing/Access_restrictions
+                if (tags[accessField]) return tags[accessField];
                 if (tags.motorroad === 'yes' && (accessField === 'foot' || accessField === 'bicycle' || accessField === 'horse')) {
                     return 'no';
                 }
-                // inherited access
                 if (tags.vehicle && (accessField === 'bicycle' || accessField === 'motor_vehicle')) {
                     return tags.vehicle;
                 }
                 if (tags.access) {
                     return tags.access;
                 }
-                // default access by road/barrier type
                 for (const key in placeholdersByTag) {
                     if (tags[key]) {
-                        if (placeholdersByTag[key][tags[key]] &&
-                            placeholdersByTag[key][tags[key]][accessField]) {
+                        if (placeholdersByTag[key][tags[key]] && placeholdersByTag[key][tags[key]][accessField]) {
                             return placeholdersByTag[key][tags[key]][accessField];
                         }
                     }
@@ -344,9 +250,12 @@ export function uiFieldAccess(field, context) {
 
 
     access.focus = function() {
-        items.selectAll('.preset-input-access')
-            .node().focus();
+        var node = items.node();
+        if (node) node.focus();
     };
+
+
+    access.unmount = renderShell.unmount;
 
 
     return utilRebind(access, dispatch, 'on');

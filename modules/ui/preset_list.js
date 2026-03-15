@@ -1,6 +1,7 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
 import { select as d3_select } from 'd3-selection';
 import _debounce from 'lodash-es/debounce';
+import { reactive } from 'vue';
 
 import { presetManager } from '../presets';
 import { t, localizer } from '../core/localizer';
@@ -26,6 +27,7 @@ export function uiPresetList(context) {
     var _currentPresets;
     var _autofocus = false;
     var _refs = null;
+    var _itemCache = new Map();
 
     var shellState = {
         searchPlaceholder: 'Search feature type',
@@ -34,6 +36,29 @@ export function uiPresetList(context) {
         setRefs: function(refs) { _refs = refs; }
     };
     var renderShell = mountVueComponent(PresetListShell, context, { state: shellState });
+
+
+    function clearItemCache() {
+        _itemCache.forEach(function(item) {
+            if (item && item.unmount) item.unmount();
+        });
+        _itemCache.clear();
+    }
+
+
+    function cachedItemForPreset(preset) {
+        var item = _itemCache.get(preset.id);
+        var isCategory = !!preset.members;
+
+        if (!item || item.preset !== preset || item.isCategory !== isCategory) {
+            if (item && item.unmount) item.unmount();
+            item = isCategory ? CategoryItem(preset) : PresetItem(preset);
+            item.isCategory = isCategory;
+            _itemCache.set(preset.id, item);
+        }
+
+        return item;
+    }
 
 
     function ensureRefs(selection) {
@@ -183,10 +208,10 @@ export function uiPresetList(context) {
                 if (preset.members.collection.filter(function(preset) {
                     return preset.addable();
                 }).length > 1) {
-                    collection.push(CategoryItem(preset));
+                    collection.push(cachedItemForPreset(preset));
                 }
             } else if (preset.addable()) {
-                collection.push(PresetItem(preset));
+                collection.push(cachedItemForPreset(preset));
             }
             return collection;
         }, []);
@@ -197,16 +222,29 @@ export function uiPresetList(context) {
         items.order();
 
         items.exit()
+            .each(function(item) {
+                if (item && item.unmount) item.unmount();
+            })
             .remove();
 
-        items.enter()
+        var itemsEnter = items.enter()
             .append('div')
-            .attr('class', function(item) { return 'preset-list-item preset-' + item.preset.id.replaceAll('/', '-'); })
-            .classed('current', function(item) { return _currentPresets.indexOf(item.preset) !== -1; })
-            .each(function(item) { d3_select(this).call(item); })
-            .style('opacity', 0)
+            .style('opacity', 0);
+
+        itemsEnter
             .transition()
             .style('opacity', 1);
+
+        items = itemsEnter
+            .merge(items)
+            .attr('class', function(item) { return 'preset-list-item preset-' + item.preset.id.replaceAll('/', '-'); })
+            .classed('current', function(item) { return _currentPresets.indexOf(item.preset) !== -1; });
+
+        if (isVueAppInitialized()) {
+            items.each(function(item) { d3_select(this).call(item); });
+        } else {
+            itemsEnter.each(function(item) { d3_select(this).call(item); });
+        }
 
         updateForFeatureHiddenState();
     }
@@ -292,39 +330,84 @@ export function uiPresetList(context) {
         var _registrationId;
         var _refs;
 
+        function click(d3_event) {
+            var buttonNode = (d3_event && d3_event.currentTarget) || this;
+            var isExpanded = shown;
+            var iconName = isExpanded ?
+                (localizer.textDirection() === 'rtl' ? '#iD-icon-backward' : '#iD-icon-forward') : '#iD-icon-down';
+
+            if (buttonNode) {
+                d3_select(buttonNode)
+                    .classed('expanded', !isExpanded)
+                    .attr('title', !isExpanded ? t('icons.collapse') : t('icons.expand'));
+                d3_select(buttonNode)
+                    .selectAll('div.label-inner svg.icon use')
+                    .attr('href', iconName);
+            }
+
+            item.choose();
+        }
+
+        var state = reactive({
+            expanded: false,
+            disabled: false,
+            buttonTitle: t('icons.expand'),
+            arrowIcon: (localizer.textDirection() === 'rtl') ? '#iD-icon-backward' : '#iD-icon-forward',
+            nameHtml: '',
+            maxHeight: '0px',
+            renderVersion: 0,
+            setRefs: function(refs) {
+                _refs = refs;
+                if (_refs && _refs.button) {
+                    _refs.button.__presetListItem = item;
+                }
+                if (_refs && _refs.icon) {
+                    d3_select(_refs.icon).call(uiPresetIcon()
+                        .geometry(entityGeometries().length === 1 && entityGeometries()[0])
+                        .preset(preset));
+                }
+                box = _refs && _refs.subgrid ? d3_select(_refs.subgrid) : null;
+                sublist = _refs && _refs.sublist ? d3_select(_refs.sublist) : null;
+                if (shown && sublist) {
+                    renderSublist();
+                }
+            },
+            onToggle: click,
+            onKeydown: function(d3_event) {
+                if (d3_event.keyCode === utilKeybinding.keyCodes[(localizer.textDirection() === 'rtl') ? '←' : '→']) {
+                    d3_event.preventDefault(); d3_event.stopPropagation(); if (!shown) click.call(d3_event.currentTarget, d3_event);
+                } else if (d3_event.keyCode === utilKeybinding.keyCodes[(localizer.textDirection() === 'rtl') ? '→' : '←']) {
+                    d3_event.preventDefault(); d3_event.stopPropagation(); if (shown) click.call(d3_event.currentTarget, d3_event);
+                } else {
+                    itemKeydown.call(d3_event.currentTarget, d3_event);
+                }
+            }
+        });
+
+
+        function updateCategoryState() {
+            state.expanded = shown;
+            state.buttonTitle = shown ? t('icons.collapse') : t('icons.expand');
+            state.arrowIcon = shown ? '#iD-icon-down' : ((localizer.textDirection() === 'rtl') ? '#iD-icon-backward' : '#iD-icon-forward');
+            state.nameHtml = (() => { var div = document.createElement('div'); preset.nameLabel()(d3_select(div)); return div.innerHTML; })();
+            if (!shown) {
+                state.maxHeight = '0px';
+            }
+        }
+
+
+        function renderSublist() {
+            if (!sublist) return null;
+            var members = preset.members.matchAllGeometry(entityGeometries());
+            sublist.call(drawList, members);
+            state.maxHeight = 200 + members.collection.length * 190 + 'px';
+            return members;
+        }
+
         function item(selection) {
             if (isVueAppInitialized()) {
-                const state = {
-                    expanded: shown,
-                    buttonTitle: shown ? t('icons.collapse') : t('icons.expand'),
-                    arrowIcon: shown ? '#iD-icon-down' : (localizer.textDirection() === 'rtl' ? '#iD-icon-backward' : '#iD-icon-forward'),
-                    nameHtml: (() => { var div = document.createElement('div'); preset.nameLabel()(d3_select(div)); return div.innerHTML; })(),
-                    maxHeight: '0px',
-                    renderVersion: 0,
-                    setRefs: function(refs) {
-                        _refs = refs;
-                        if (_refs && _refs.button) {
-                            _refs.button.__presetListItem = item;
-                        }
-                        if (_refs && _refs.icon) {
-                            d3_select(_refs.icon).call(uiPresetIcon()
-                                .geometry(entityGeometries().length === 1 && entityGeometries()[0])
-                                .preset(preset));
-                        }
-                        box = _refs && _refs.subgrid ? d3_select(_refs.subgrid) : null;
-                        sublist = _refs && _refs.sublist ? d3_select(_refs.sublist) : null;
-                    },
-                    onToggle: click,
-                    onKeydown: function(d3_event) {
-                        if (d3_event.keyCode === utilKeybinding.keyCodes[(localizer.textDirection() === 'rtl') ? '←' : '→']) {
-                            d3_event.preventDefault(); d3_event.stopPropagation(); if (!shown) click.call(d3_event.currentTarget, d3_event);
-                        } else if (d3_event.keyCode === utilKeybinding.keyCodes[(localizer.textDirection() === 'rtl') ? '→' : '←']) {
-                            d3_event.preventDefault(); d3_event.stopPropagation(); if (shown) click.call(d3_event.currentTarget, d3_event);
-                        } else {
-                            itemKeydown.call(d3_event.currentTarget, d3_event);
-                        }
-                    }
-                };
+                updateCategoryState();
+                state.renderVersion += 1;
                 if (_registrationId) unregisterComponent(_registrationId);
                 _registrationId = registerComponent(PresetListCategory, selection.node(), { state: state });
                 return;
@@ -332,15 +415,6 @@ export function uiPresetList(context) {
 
             var wrap = selection.append('div')
                 .attr('class', 'preset-list-button-wrap category');
-
-        function click() {
-                var isExpanded = shown;
-                var iconName = isExpanded ?
-                    (localizer.textDirection() === 'rtl' ? '#iD-icon-backward' : '#iD-icon-forward') : '#iD-icon-down';
-                d3_select(this).classed('expanded', !isExpanded).attr('title', !isExpanded ? t('icons.collapse') : t('icons.expand'));
-                d3_select(this).selectAll('div.label-inner svg.icon use').attr('href', iconName);
-                item.choose();
-            }
 
             var geometries = entityGeometries();
 
@@ -409,6 +483,7 @@ export function uiPresetList(context) {
 
             if (shown) {
                 shown = false;
+                updateCategoryState();
                 box.transition()
                     .duration(200)
                     .style('opacity', '0')
@@ -416,13 +491,25 @@ export function uiPresetList(context) {
                     .style('padding-bottom', '0px');
             } else {
                 shown = true;
-                var members = preset.members.matchAllGeometry(entityGeometries());
-                sublist.call(drawList, members);
+                var members = renderSublist();
+                updateCategoryState();
                 box.transition()
                     .duration(200)
                     .style('opacity', '1')
                     .style('max-height', 200 + members.collection.length * 190 + 'px')
                     .style('padding-bottom', '10px');
+            }
+        };
+
+
+        item.setHiddenState = function(disabled) {
+            state.disabled = disabled;
+        };
+
+        item.unmount = function() {
+            if (_registrationId) {
+                unregisterComponent(_registrationId);
+                _registrationId = null;
             }
         };
 
@@ -433,35 +520,37 @@ export function uiPresetList(context) {
 
     function PresetItem(preset) {
         var _registrationId;
+        var state = reactive({
+            nameparts: [],
+            disabled: false,
+            tooltip: '',
+            renderVersion: 0,
+            setRefs: function(refs) {
+                if (refs && refs.button) {
+                    refs.button.__presetListItem = item;
+                }
+                if (refs.icon) {
+                    d3_select(refs.icon).call(uiPresetIcon().geometry(entityGeometries().length === 1 && entityGeometries()[0]).preset(preset));
+                }
+                if (refs.accessory) {
+                    d3_select(refs.accessory).call(item.reference.button);
+                }
+                if (refs.body) {
+                    d3_select(refs.body).call(item.reference.body);
+                }
+            },
+            onChoose: function(d3_event) { item.choose.call(d3_event.currentTarget); },
+            onKeydown: function(d3_event) { itemKeydown.call(d3_event.currentTarget, d3_event); }
+        });
+
         function item(selection) {
             if (isVueAppInitialized()) {
-                const nameparts = [preset.nameLabel(), preset.subtitleLabel()].filter(Boolean).map(fn => {
+                state.nameparts = [preset.nameLabel(), preset.subtitleLabel()].filter(Boolean).map(fn => {
                     var div = document.createElement('div');
                     fn(d3_select(div));
                     return div.innerHTML;
                 });
-                const state = {
-                    nameparts: nameparts,
-                    disabled: false,
-                    tooltip: '',
-                    renderVersion: 0,
-                    setRefs: function(refs) {
-                        if (refs && refs.button) {
-                            refs.button.__presetListItem = item;
-                        }
-                        if (refs.icon) {
-                            d3_select(refs.icon).call(uiPresetIcon().geometry(entityGeometries().length === 1 && entityGeometries()[0]).preset(preset));
-                        }
-                        if (refs.accessory) {
-                            d3_select(refs.accessory).call(item.reference.button);
-                        }
-                        if (refs.body) {
-                            d3_select(refs.body).call(item.reference.body);
-                        }
-                    },
-                    onChoose: item.choose,
-                    onKeydown: function(d3_event) { itemKeydown.call(d3_event.currentTarget, d3_event); }
-                };
+                state.renderVersion += 1;
                 if (_registrationId) unregisterComponent(_registrationId);
                 _registrationId = registerComponent(PresetListEntry, selection.node(), { state: state });
                 return;
@@ -529,6 +618,18 @@ export function uiPresetList(context) {
             item.reference.toggle();
         };
 
+
+        item.setHiddenState = function(disabled) {
+            state.disabled = disabled;
+        };
+
+        item.unmount = function() {
+            if (_registrationId) {
+                unregisterComponent(_registrationId);
+                _registrationId = null;
+            }
+        };
+
         item.preset = preset;
         item.reference = uiTagReference(preset.reference(), context);
 
@@ -557,6 +658,10 @@ export function uiPresetList(context) {
                 !!hiddenPresetFeaturesId &&
                 (_currentPresets.length !== 1 || item.preset !== _currentPresets[0]);
 
+            if (item.setHiddenState) {
+                item.setHiddenState(isHiddenPreset);
+            }
+
             d3_select(this)
                 .classed('disabled', isHiddenPreset);
 
@@ -581,6 +686,7 @@ export function uiPresetList(context) {
     presetList.entityIDs = function(val) {
         if (!arguments.length) return _entityIDs;
 
+        clearItemCache();
         _entityIDs = val;
         _currLoc = null;
 
@@ -630,6 +736,12 @@ export function uiPresetList(context) {
             return counts[geom2] - counts[geom1];
         });
     }
+
+
+    presetList.unmount = function() {
+        renderShell.unmount();
+        clearItemCache();
+    };
 
     return utilRebind(presetList, dispatch, 'on');
 }

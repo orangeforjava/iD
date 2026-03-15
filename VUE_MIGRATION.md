@@ -41,7 +41,7 @@ iD 的 UI 是一棵由 d3 管理的 DOM 树。迁移采用**逐组件、自底�
 | `modules/ui/vue/VueRoot.vue` | 根组件：通过 `<Teleport>` 渲染所有注册的 Vue 组件 |
 | `modules/ui/vue/bridge.js` | d3/Vue 桥接：`mountVueComponent()` + `contextKey` |
 | `modules/ui/vue/useContext.js` | Vue composable，用于访问 iD context |
-| `modules/ui/vue/*.vue` | Vue 单文件组件：`ZoomControls.vue`, `ScaleBar.vue`, `VersionBadge.vue`, `GeolocateButton.vue`, `ZoomToSelectionButton.vue`, `AttributionPanel.vue`, `StatusBar.vue`, `NoticeBanner.vue`, `SpinnerIndicator.vue`, `FeatureInfoChip.vue`, `IssuesInfoChips.vue`, `ContributorsList.vue`, `SourceSwitchChip.vue`, `AccountLinks.vue`, `RestoreModal.vue`, `FullScreenBinding.vue`, `ViewOnOSMLink.vue`, `ViewOnKeepRightLink.vue`, `ViewOnOsmoseLink.vue`, `DataHeader.vue`, `KeepRightHeader.vue`, `NoteHeader.vue`, `FlashMessage.vue`, `LoadingModal.vue`, `SplashModal.vue`, `InfoPanels.vue`, `EditMenuShell.vue`, `OsmoseHeader.vue`, `NoteReportLink.vue`, `LengthIndicator.vue`, `ConfirmDialog.vue`, `ShortcutsDialog.vue`, `KeepRightDetails.vue`, `OsmoseDetails.vue`, `FieldHelpPanel.vue`, `DataEditorPanel.vue`, `OsmoseEditorPanel.vue`, `KeepRightEditorPanel.vue`, `NoteEditorPanel.vue`, `TopToolbarShell.vue`, `SuccessPanel.vue`, `FeatureListPanel.vue`, `InspectorShell.vue`, `EntityEditorShell.vue`, `SidebarShell.vue`, `TagReferenceBody.vue`, `FeatureTypeSection.vue`, `PresetListShell.vue`, `FormFieldsShell.vue`, `PresetFieldsSection.vue`, `FieldShell.vue`, `SelectionListSection.vue`, `EntityIssuesSection.vue`, `CheckFieldInput.vue`, `NoteCommentsList.vue`, `TextareaFieldInput.vue`, `InputFieldShell.vue`, `RoadspeedFieldInput.vue`, `RoadheightFieldInput.vue`, `PresetIconShell.vue`, `RawTagEditorShell.vue`, `MemberEditorShell.vue`, `MembershipEditorShell.vue`, `PrivacySection.vue`, `MapFeaturesSection.vue`, `MapStyleOptionsSection.vue`, `ValidationStatusSection.vue`, `ChangesSection.vue`, `BackgroundDisplayOptionsSection.vue`, `BackgroundOffsetSection.vue`, `ValidationOptionsSection.vue`, `ValidationRulesSection.vue`, `ValidationIssuesSection.vue`, `BackgroundListSection.vue`, `OverlayListSection.vue`, `CustomBackgroundDialog.vue` |
+| `modules/ui/vue/*.vue` | Vue 单文件组件：`ZoomControls.vue`, `ScaleBar.vue`, `VersionBadge.vue`, `GeolocateButton.vue`, `ZoomToSelectionButton.vue`, `AttributionPanel.vue`, `StatusBar.vue`, `NoticeBanner.vue`, `SpinnerIndicator.vue`, `FeatureInfoChip.vue`, `IssuesInfoChips.vue`, `ContributorsList.vue`, `SourceSwitchChip.vue`, `AccountLinks.vue`, `RestoreModal.vue`, `FullScreenBinding.vue`, `ViewOnOSMLink.vue`, `ViewOnKeepRightLink.vue`, `ViewOnOsmoseLink.vue`, `DataHeader.vue`, `KeepRightHeader.vue`, `NoteHeader.vue`, `FlashMessage.vue`, `LoadingModal.vue`, `SplashModal.vue`, `InfoPanels.vue`, `EditMenuShell.vue`, `OsmoseHeader.vue`, `NoteReportLink.vue`, `LengthIndicator.vue`, `ConfirmDialog.vue`, `ShortcutsDialog.vue`, `KeepRightDetails.vue`, `OsmoseDetails.vue`, `FieldHelpPanel.vue`, `DataEditorPanel.vue`, `OsmoseEditorPanel.vue`, `KeepRightEditorPanel.vue`, `NoteEditorPanel.vue`, `TopToolbarShell.vue`, `SuccessPanel.vue`, `FeatureListPanel.vue`, `InspectorShell.vue`, `EntityEditorShell.vue`, `SidebarShell.vue`, `TagReferenceBody.vue`, `FeatureTypeSection.vue`, `PresetListShell.vue`, `FormFieldsShell.vue`, `PresetFieldsSection.vue`, `FieldShell.vue`, `SelectionListSection.vue`, `EntityIssuesSection.vue`, `CheckFieldInput.vue`, `NoteCommentsList.vue`, `TextareaFieldInput.vue`, `InputFieldShell.vue`, `ComboFieldShell.vue`, `LocalizedFieldShell.vue`, `LanesFieldShell.vue`, `AddressFieldShell.vue`, `RestrictionsFieldShell.vue`, `AccessFieldShell.vue`, `WikipediaFieldShell.vue`, `WikidataFieldShell.vue`, `RoadspeedFieldInput.vue`, `RoadheightFieldInput.vue`, `PresetIconShell.vue`, `RawTagEditorShell.vue`, `MemberEditorShell.vue`, `MembershipEditorShell.vue`, `PrivacySection.vue`, `MapFeaturesSection.vue`, `MapStyleOptionsSection.vue`, `ValidationStatusSection.vue`, `ChangesSection.vue`, `BackgroundDisplayOptionsSection.vue`, `BackgroundOffsetSection.vue`, `ValidationOptionsSection.vue`, `ValidationRulesSection.vue`, `ValidationIssuesSection.vue`, `BackgroundListSection.vue`, `OverlayListSection.vue`, `CustomBackgroundDialog.vue` |
 | `modules/ui/*.js` | 包装文件，导出 d3 兼容函数 |
 | `postcss.config.js` | PostCSS 配置（将 node_modules 排除在 `.ideditor` 前缀之外） |
 | `modules/id.js` | 初始化 Vue app + Element Plus 组件 CSS 引入 |
@@ -164,6 +164,30 @@ npm run dev         # 在浏览器中测试
 ```
 
 ## 常见迁移模式
+
+### Section shell 的生命周期收敛
+
+对于 `raw_tag_editor`、`raw_member_editor`、`raw_membership_editor` 这类 section，当前更稳妥的做法不是重写内部 d3 行级逻辑，而是先补齐 Vue shell 的生命周期：
+
+- `renderDisclosureContent()` 内继续沿用 `registerComponent(...)` / `unregisterComponent(...)`
+- section 对外补 `section.unmount()`，在 editor 或 `ui.restart()` 清理时主动注销对应的 Vue 注册项
+- shell 只负责 options/list/text/add-row 等挂载位，typeahead、拖拽、tag diff、relation 变更仍留在原 d3 逻辑里
+
+这类改动属于典型的 shell-first migration：先把容器和清理路径稳定下来，再逐步把更细的 UI 壳层迁入 Vue。
+
+目前这条模式已经用于 `raw_tag_editor`、`raw_member_editor`、`raw_membership_editor`，并且三者都补上了 targeted section tests，用来验证：
+
+- Vue shell 会在 disclosure 展开后稳定挂载
+- refs 就绪后会触发一次 re-render，把 d3 内容接到正确的 mount point
+- `section.unmount()` 会清理 teleported shell，避免 editor 重建或 `ui.restart()` 后残留注册项
+
+同样的生命周期收敛思路现在也已经扩展到 `feature_type` / `preset_fields` 这类左侧编辑器 section，以及 `uiField` / `uiFormFields` / `uiTagReference` 这类嵌套壳层组件：
+
+- 父 section 在 `unmount()` 时级联清理内部 Vue shell
+- `uiFormFields` 会继续向下清理每个已创建 field
+- `uiField` 会继续清理内部 field impl、help panel、tag reference shell
+
+另外，一批纯 section-shell 的 Vue 区块也开始补显式 `section.unmount()`，例如 `map_features`、`map_style_options`、`privacy`、`validation_options`、`validation_rules`、`validation_status`、`background_display_options`、`background_list`、`background_offset`、`changes`、`overlay_list`。这类 section 逻辑本身不复杂，但补齐显式清理后，editor 重建和测试环境中的 Teleport 生命周期会更可控。
 
 ### 模式一：d3 事件订阅 -> Vue 响应式状态
 
@@ -369,7 +393,7 @@ Element Plus 组件的样式独立于 iD 的 CSS。PostCSS 的 `.ideditor` 前�
 | 已完成 | `uiEntityEditor` | 高 | 中（编辑器容器） | Vue 管理 header/body 壳层，section 继续复用 d3 |
 | 已完成 | `uiSidebar` | 高 | 中（左侧总容器） | Vue 管理 sidebar 壳层，内部继续复用已迁子组件与拖拽逻辑 |
 | 已完成 | `uiTagReference` | 中 | 低（文档弹层） | 文档内容切到 Vue，按钮/显隐 API 保持不变 |
-| 部分迁移 | `uiPresetList` | 高 | 中（preset 列表） | Vue 管理 header/search/list 壳层，item/category/键盘逻辑仍复用 d3 |
+| 部分迁移 | `uiPresetList` | 高 | 中（preset 列表） | Vue 管理 header/search/list 壳层，item/category 已走 Vue；本轮补充 item 缓存与重绘复用，稳定 current/disabled 等状态更新 |
 | 部分迁移 | `uiSectionFeatureType` | 中 | 低（Inspector 区块） | Vue 管理区块壳层，图标/引用按钮仍复用 d3 |
 | 部分迁移 | `uiFormFields` | 高 | 中（字段组容器） | Vue 管理字段挂载位与“更多字段”输入壳层 |
 | 部分迁移 | `uiSectionPresetFields` | 高 | 中（字段区块） | Vue 管理区块壳层，字段本体继续复用 `uiField` |
@@ -380,6 +404,16 @@ Element Plus 组件的样式独立于 iD 的 CSS。PostCSS 的 `.ideditor` 前�
 | 已完成 | `uiNoteComments` | 中 | 低（评论列表） | Vue 驱动评论列表与头像替换 |
 | 已完成 | `ui/fields/textarea.js` | 中 | 中（字段实现） | Vue 驱动 textarea 外壳与长度提示挂载位 |
 | 部分迁移 | `ui/fields/input.js` | 高 | 中（字段实现） | Vue 管理基础输入壳层，复杂附属控件仍复用 d3 |
+| 部分迁移 | `ui/fields/combo.js` | 高 | 中（字段实现） | Vue 管理 combo/multiCombo/semiCombo 输入壳层，taginfo/chip/拖拽逻辑继续复用 d3 |
+| 部分迁移 | `ui/fields/address.js` | 高 | 中（字段实现） | Vue 管理 address 容器壳层，国家格式、行布局和 dropdown 逻辑继续复用 d3 |
+| 部分迁移 | `ui/fields/localized.js` | 高 | 中（字段实现） | Vue 管理主输入/添加按钮/多语言容器壳层，多语言 entry 与 combobox 逻辑继续复用 d3 |
+| 部分迁移 | `ui/fields/lanes.js` | 中 | 低（字段实现） | Vue 管理 lanes SVG 挂载壳层，车道图形绘制继续复用 d3 |
+| 部分迁移 | `ui/fields/restrictions.js` | 极高 | 低（字段实现） | Vue 管理 viewer/controls 容器壳层，交互状态机、turn logic、SVG 图层渲染继续复用 d3 |
+| 部分迁移 | `ui/fields/access.js` | 中 | 中（字段实现） | Vue 管理 access 行列表壳层，combobox、placeholder 推导和 change 分发继续复用 d3 |
+| 部分迁移 | `ui/fields/wikipedia.js` | 高 | 中（字段实现） | Vue 管理语言输入、标题输入和外链按钮壳层，建议与 wikidata 联动逻辑继续复用 d3 |
+| 部分迁移 | `ui/fields/wikidata.js` | 高 | 中（字段实现） | Vue 管理搜索行、说明/标识只读区和复制按钮壳层，搜索与 wikipedia 同步逻辑继续复用 d3 |
+| 部分迁移 | `ui/fields/directional_combo.js` | 中 | 中（字段实现） | Vue 管理左右向行壳层与 combo 挂载位，方向合并/回写逻辑继续复用 d3 |
+| 部分迁移 | `ui/fields/radio.js` | 高 | 中（字段实现） | Vue 管理 radio 选项列表、placeholder 和 structure extras 壳层，选中态与嵌套子字段继续复用 d3 |
 | 已完成 | `ui/fields/roadspeed.js` | 中 | 中（字段实现） | Vue 驱动限速输入壳层与单位输入 |
 | 已完成 | `ui/fields/roadheight.js` | 中 | 中（字段实现） | Vue 驱动限高输入壳层与双单位输入 |
 | 部分迁移 | `uiPresetIcon` | 中 | 低（图标渲染） | Vue 承载图标挂载壳层，具体 SVG/图像绘制仍复用原逻辑 |

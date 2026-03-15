@@ -251,7 +251,16 @@ export function uiEntityEditor(context) {
     return entityEditor;
   };
 
-  entityEditor.unmount = render.unmount;
+  entityEditor.unmount = function() {
+    if (_sections) {
+      _sections.forEach(function(section) {
+        if (section && section.unmount) {
+          section.unmount();
+        }
+      });
+    }
+    render.unmount();
+  };
 
   return utilRebind(entityEditor, dispatch, 'on');
 }

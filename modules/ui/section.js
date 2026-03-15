@@ -105,6 +105,9 @@ export function uiSection(id, context) {
             var shouldDisplay = _shouldDisplay();
             selection.classed('hide', !shouldDisplay);
             if (!shouldDisplay) {
+                if (section.unmount) {
+                    section.unmount();
+                }
                 selection.html('');
                 return;
             }

@@ -8,6 +8,8 @@ import { t, localizer } from '../../core/localizer';
 import { svgIcon } from '../../svg';
 import { uiTooltip } from '../tooltip';
 import { uiCombobox } from '../combobox';
+import { mountVueComponent } from '../vue/bridge';
+import LocalizedFieldShell from '../vue/LocalizedFieldShell.vue';
 import { utilArrayUniq, utilGetSetValue, utilNoAuto, utilRebind, utilTotalExtent, utilUniqueDomId } from '../../util';
 import { uiLengthIndicator } from '../length_indicator';
 
@@ -17,11 +19,15 @@ export const LANGUAGE_SUFFIX_REGEX = /^(.*):([a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-[A
 
 export function uiFieldLocalized(field, context) {
     var dispatch = d3_dispatch('change', 'input');
+    var _wrap = d3_select(null);
     var input = d3_select(null);
+    var translateButton = d3_select(null);
     var localizedInputs = d3_select(null);
     var _lengthIndicator = uiLengthIndicator(context.maxCharsForTagValue());
     var _countryCode;
     var _tags;
+    var _refs = null;
+    var _renderVersion = 0;
 
 
     // A concern here in switching to async data means that _languagesArray will not
@@ -47,6 +53,18 @@ export function uiFieldLocalized(field, context) {
         .title(() => t.append('translate.translate'))
         .placement('left');
     var _entityIDs = [];
+    var shellState = {
+        domId: field.domId,
+        renderVersion: 0,
+        setRefs: function(refs) {
+            _refs = refs;
+            _wrap = refs.wrap ? d3_select(refs.wrap) : d3_select(null);
+            input = refs.input ? d3_select(refs.input) : d3_select(null);
+            translateButton = refs.translateButton ? d3_select(refs.translateButton) : d3_select(null);
+            localizedInputs = refs.multilingual ? d3_select(refs.multilingual) : d3_select(null);
+        }
+    };
+    var renderShell = mountVueComponent(LocalizedFieldShell, context, { state: shellState });
 
 
     function loadLanguagesArray(dataLanguages) {
@@ -148,121 +166,126 @@ export function uiFieldLocalized(field, context) {
     }
 
 
-    function localized(selection) {
-        _selection = selection;
-        calcLocked();
+    function addNew(d3_event) {
+        d3_event.preventDefault();
+        if (field.locked()) return;
+
+        var defaultLang = localizer.languageCode().toLowerCase();
+        var langExists = _multilingual.find(function(datum) { return datum.lang === defaultLang; });
+        var isLangEn = defaultLang.indexOf('en') > -1;
+        if (isLangEn || langExists) {
+            defaultLang = '';
+            langExists = _multilingual.find(function(datum) { return datum.lang === defaultLang; });
+        }
+
+        if (!langExists) {
+            // prepend the value so it appears at the top
+            _multilingual.unshift({ lang: defaultLang, value: '' });
+
+            localizedInputs.call(renderMultilingual);
+        }
+    }
+
+
+    function change(onInput) {
+        return function(d3_event) {
+            if (field.locked()) {
+                d3_event.preventDefault();
+                return;
+            }
+
+            var val = utilGetSetValue(d3_select(this));
+            if (!onInput) val = context.cleanTagValue(val);
+
+            // don't override multiple values with blank string
+            if (!val && Array.isArray(_tags[field.key])) return;
+
+            var t2 = {};
+
+            t2[field.key] = val || undefined;
+            dispatch.call('change', this, t2, onInput);
+        };
+    }
+
+
+    function bindShellRefs() {
         var isLocked = field.locked();
 
-        var wrap = selection.selectAll('.form-field-input-wrap')
-            .data([0]);
-
-        // enter/update
-        wrap = wrap.enter()
-            .append('div')
-            .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
-            .merge(wrap);
-
-        input = wrap.selectAll('.localized-main')
-            .data([0]);
-
-        // enter/update
-        input = input.enter()
-            .append('input')
-            .attr('type', 'text')
-            .attr('dir', 'auto')
-            .attr('id', field.domId)
-            .attr('class', 'localized-main')
-            .call(utilNoAuto)
-            .merge(input);
-
         input
+            .call(utilNoAuto)
             .classed('disabled', !!isLocked)
             .attr('readonly', isLocked || null)
             .on('input', change(true))
             .on('blur', change())
             .on('change', change());
 
-        wrap.call(_lengthIndicator);
-
-
-        var translateButton = wrap.selectAll('.localized-add')
-            .data([0]);
-
-        translateButton = translateButton.enter()
-            .append('button')
-            .attr('class', 'localized-add form-field-button')
-            .attr('aria-label', t('icons.plus'))
-            .call(svgIcon('#iD-icon-plus'))
-            .merge(translateButton);
+        _wrap.call(_lengthIndicator);
 
         translateButton
             .classed('disabled', !!isLocked)
             .call(isLocked ? _buttonTip.destroy : _buttonTip)
             .on('click', addNew);
 
-
         if (_tags && !_multilingual.length) {
             calcMultilingual(_tags);
         }
 
-        localizedInputs = selection.selectAll('.localized-multilingual')
-            .data([0]);
-
-        localizedInputs = localizedInputs.enter()
-            .append('div')
-            .attr('class', 'localized-multilingual')
-            .merge(localizedInputs);
-
-        localizedInputs
-            .call(renderMultilingual);
+        localizedInputs.call(renderMultilingual);
 
         localizedInputs.selectAll('button, input')
             .classed('disabled', !!isLocked)
             .attr('readonly', isLocked || null);
-        selection.selectAll('.combobox-caret').classed('nope', true);
+
+        _selection.selectAll('.combobox-caret').classed('nope', true);
+    }
 
 
-        function addNew(d3_event) {
-            d3_event.preventDefault();
-            if (field.locked()) return;
+    function localized(selection) {
+        _selection = selection;
+        calcLocked();
+        shellState.renderVersion = ++_renderVersion;
+        renderShell(selection);
 
-            var defaultLang = localizer.languageCode().toLowerCase();
-            var langExists = _multilingual.find(function(datum) { return datum.lang === defaultLang; });
-            var isLangEn = defaultLang.indexOf('en') > -1;
-            if (isLangEn || langExists) {
-                defaultLang = '';
-                langExists = _multilingual.find(function(datum) { return datum.lang === defaultLang; });
-            }
+        if (!_refs) {
+            _wrap = selection.selectAll('.form-field-input-wrap')
+                .data([0]);
 
-            if (!langExists) {
-                // prepend the value so it appears at the top
-                _multilingual.unshift({ lang: defaultLang, value: '' });
+            _wrap = _wrap.enter()
+                .append('div')
+                .attr('class', 'form-field-input-wrap form-field-input-' + field.type)
+                .merge(_wrap);
 
-                localizedInputs
-                    .call(renderMultilingual);
-            }
+            input = _wrap.selectAll('.localized-main')
+                .data([0]);
+
+            input = input.enter()
+                .append('input')
+                .attr('type', 'text')
+                .attr('dir', 'auto')
+                .attr('id', field.domId)
+                .attr('class', 'localized-main')
+                .merge(input);
+
+            translateButton = _wrap.selectAll('.localized-add')
+                .data([0]);
+
+            translateButton = translateButton.enter()
+                .append('button')
+                .attr('class', 'localized-add form-field-button')
+                .attr('aria-label', t('icons.plus'))
+                .call(svgIcon('#iD-icon-plus'))
+                .merge(translateButton);
+
+            localizedInputs = selection.selectAll('.localized-multilingual')
+                .data([0]);
+
+            localizedInputs = localizedInputs.enter()
+                .append('div')
+                .attr('class', 'localized-multilingual')
+                .merge(localizedInputs);
         }
 
-
-        function change(onInput) {
-            return function(d3_event) {
-                if (field.locked()) {
-                    d3_event.preventDefault();
-                    return;
-                }
-
-                var val = utilGetSetValue(d3_select(this));
-                if (!onInput) val = context.cleanTagValue(val);
-
-                // don't override multiple values with blank string
-                if (!val && Array.isArray(_tags[field.key])) return;
-
-                var t = {};
-
-                t[field.key] = val || undefined;
-                dispatch.call('change', this, t, onInput);
-            };
-        }
+        bindShellRefs();
     }
 
 
@@ -498,7 +521,8 @@ export function uiFieldLocalized(field, context) {
 
 
     localized.focus = function() {
-        input.node().focus();
+        var node = input.node();
+        if (node) node.focus();
     };
 
 
@@ -519,6 +543,9 @@ export function uiFieldLocalized(field, context) {
     function combinedEntityExtent() {
         return _entityIDs && _entityIDs.length && utilTotalExtent(_entityIDs, context.graph());
     }
+
+
+    localized.unmount = renderShell.unmount;
 
     return utilRebind(localized, dispatch, 'on');
 }

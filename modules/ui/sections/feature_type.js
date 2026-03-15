@@ -1,5 +1,6 @@
 import { dispatch as d3_dispatch } from 'd3-dispatch';
 import { select as d3_select } from 'd3-selection';
+import { reactive } from 'vue';
 
 import { presetManager } from '../../presets';
 import { utilArrayIdentical } from '../../util/array';
@@ -21,8 +22,28 @@ export function uiSectionFeatureType(context) {
     var _presets = [];
 
     var _tagReference;
+    var _presetIcon = uiPresetIcon();
     var _registrationId;
     var _refs;
+    var _renderVersion = 0;
+    var _didInitialVueSync = false;
+
+    var shellState = reactive({
+        showReference: false,
+        renderVersion: 0,
+        onChoose: function() { dispatch.call('choose', null, _presets); },
+        setRefs: function(refs) {
+            _refs = refs;
+            if (!_didInitialVueSync) {
+                _didInitialVueSync = true;
+                section.reRender();
+            }
+        }
+    });
+
+    function hasLiveShellRefs(target) {
+        return !!(target && _refs && _refs.icon && _refs.icon.isConnected && target.contains(_refs.icon));
+    }
 
     var section = uiSection('feature-type', context)
         .label(() => t.append('inspector.feature_type'))
@@ -34,17 +55,20 @@ export function uiSectionFeatureType(context) {
         selection.classed('mixed-types', _presets.length > 1);
 
         if (isVueAppInitialized()) {
-            if (_registrationId) unregisterComponent(_registrationId);
-            _refs = null;
-            var state = {
-                showReference: _presets.length === 1,
-                onChoose: function() { dispatch.call('choose', null, _presets); },
-                setRefs: function(refs) { _refs = refs; }
-            };
-            _registrationId = registerComponent(FeatureTypeSection, selection.node(), { state: state });
-        }
-
-        if (!_refs) {
+            var target = selection.node();
+            shellState.showReference = _presets.length === 1;
+            shellState.renderVersion = ++_renderVersion;
+            if (!_registrationId || !hasLiveShellRefs(target)) {
+                if (_registrationId) {
+                    unregisterComponent(_registrationId);
+                    _registrationId = null;
+                }
+                _refs = null;
+                _didInitialVueSync = false;
+                _registrationId = registerComponent(FeatureTypeSection, target, { state: shellState });
+            }
+            if (!hasLiveShellRefs(target)) return;
+        } else {
             var fallbackWrap = selection.selectAll('.preset-list-button-wrap')
                 .data([0])
                 .enter()
@@ -120,7 +144,7 @@ export function uiSectionFeatureType(context) {
 
         var geometries = entityGeometries();
         (_refs ? d3_select(_refs.icon.parentNode.parentNode) : selection.select('.preset-list-item button'))
-            .call(uiPresetIcon()
+            .call(_presetIcon
                 .geometry(_presets.length === 1 ? (geometries.length === 1 && geometries[0]) : null)
                 .preset(_presets.length === 1 ? _presets[0] : presetManager.item('point'))
             );
@@ -181,6 +205,21 @@ export function uiSectionFeatureType(context) {
             return counts[geom2] - counts[geom1];
         });
     }
+
+    section.unmount = function() {
+        if (_registrationId) {
+            unregisterComponent(_registrationId);
+            _registrationId = null;
+        }
+        if (_tagReference && _tagReference.unmount) {
+            _tagReference.unmount();
+        }
+        if (_presetIcon && _presetIcon.unmount) {
+            _presetIcon.unmount(section.selection().selectAll('.preset-icon-container'));
+        }
+        _refs = null;
+        _didInitialVueSync = false;
+    };
 
     return utilRebind(section, dispatch, 'on');
 }

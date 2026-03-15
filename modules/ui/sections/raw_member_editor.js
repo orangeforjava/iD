@@ -2,6 +2,7 @@ import { drag as d3_drag } from 'd3-drag';
 import {
     select as d3_select
 } from 'd3-selection';
+import { reactive } from 'vue';
 
 import { presetManager } from '../../presets';
 import { t } from '../../core/localizer';
@@ -47,11 +48,22 @@ export function uiSectionRawMemberEditor(context) {
     var _registrationId;
     var _refs;
     var _renderVersion = 0;
+    var _didInitialVueSync = false;
 
-    var shellState = {
+    var shellState = reactive({
         renderVersion: 0,
-        setRefs: function(refs) { _refs = refs; }
-    };
+        setRefs: function(refs) {
+            _refs = refs;
+            if (!_didInitialVueSync) {
+                _didInitialVueSync = true;
+                section.reRender();
+            }
+        }
+    });
+
+    function hasLiveShellRefs(target) {
+        return !!(target && _refs && _refs.list && _refs.list.isConnected && target.contains(_refs.list));
+    }
 
     function downloadMember(d3_event, d) {
         d3_event.preventDefault();
@@ -133,10 +145,18 @@ export function uiSectionRawMemberEditor(context) {
 
     function renderDisclosureContent(selection) {
         if (isVueAppInitialized()) {
-            if (_registrationId) unregisterComponent(_registrationId);
-            _refs = null;
+            var target = selection.node();
             shellState.renderVersion = ++_renderVersion;
-            _registrationId = registerComponent(MemberEditorShell, selection.node(), { state: shellState });
+            if (!_registrationId || !hasLiveShellRefs(target)) {
+                if (_registrationId) {
+                    unregisterComponent(_registrationId);
+                    _registrationId = null;
+                }
+                _refs = null;
+                _didInitialVueSync = false;
+                _registrationId = registerComponent(MemberEditorShell, target, { state: shellState });
+            }
+            if (!hasLiveShellRefs(target)) return;
         }
 
         var entityID = _entityIDs[0];
@@ -454,6 +474,16 @@ export function uiSectionRawMemberEditor(context) {
         if (!arguments.length) return _entityIDs;
         _entityIDs = val;
         return section;
+    };
+
+
+    section.unmount = function() {
+        if (_registrationId) {
+            unregisterComponent(_registrationId);
+            _registrationId = null;
+        }
+        _refs = null;
+        _didInitialVueSync = false;
     };
 
 

@@ -15,8 +15,8 @@
 
 | 状态 | 数量 | 说明 |
 |------|------|------|
-| 已迁移/部分迁移 | 30 | 已切到 Vue 或由 Vue 承载主要 UI 壳层 |
-| 未迁移 | 若干 | 主要集中在左侧编辑器、顶部工具栏、地图内嵌/复杂弹层 |
+| 已迁移/部分迁移 | 83 | 已切到 Vue 或由 Vue 承载主要 UI 壳层 |
+| 未迁移 | 6 | 主要集中在左侧编辑器深层逻辑、modal 基础设施、地图内嵌和照片查看器 |
 
 
 ## 地图右侧 / 覆盖层
@@ -75,35 +75,41 @@
 | `uiLengthIndicator` | 输入框长度指示器 | 已迁移 | `modules/ui/vue/LengthIndicator.vue` | 保留 `.update()` / `.silent()` |
 | `uiFieldHelp` | 字段帮助弹层 | 已迁移 | `modules/ui/vue/FieldHelpPanel.vue` | 保留 `.button()` / `.body()`，按钮仍沿用旧接口 |
 | `uiTagReference` | 标签文档引用弹层 | 已迁移 | `modules/ui/vue/TagReferenceBody.vue` | 文档内容已切到 Vue，保留 `.button()` / `.body()` |
-| `uiSectionFeatureType` | Inspector 中的类型区块 | 部分迁移 | `modules/ui/vue/FeatureTypeSection.vue` | Vue 管理区块壳层，图标/引用按钮仍复用 d3 |
-| `uiSectionPresetFields` | Inspector 中的字段区块 | 部分迁移 | `modules/ui/vue/PresetFieldsSection.vue` | Vue 管理区块壳层，字段本体继续复用 `uiFormFields`/`uiField` |
-| `uiFormFields` | 字段组容器 | 部分迁移 | `modules/ui/vue/FormFieldsShell.vue` | Vue 管理字段挂载位与“更多字段”输入壳层 |
-| `uiField` | 单个字段外壳 | 部分迁移 | `modules/ui/vue/FieldShell.vue` | Vue 管理 label/按钮/挂载位，具体字段实现仍复用 `ui/fields/*` |
+| `uiSectionFeatureType` | Inspector 中的类型区块 | 部分迁移 | `modules/ui/vue/FeatureTypeSection.vue` | Vue 管理区块壳层，图标/引用按钮仍复用 d3；已补 section 生命周期清理与 targeted tests |
+| `uiSectionPresetFields` | Inspector 中的字段区块 | 部分迁移 | `modules/ui/vue/PresetFieldsSection.vue` | Vue 管理区块壳层，字段本体继续复用 `uiFormFields`/`uiField`；已补 section 生命周期清理与 targeted tests |
+| `uiFormFields` | 字段组容器 | 部分迁移 | `modules/ui/vue/FormFieldsShell.vue` | Vue 管理字段挂载位与“更多字段”输入壳层；已补 unmount 级联清理 |
+| `uiField` | 单个字段外壳 | 部分迁移 | `modules/ui/vue/FieldShell.vue` | Vue 管理 label/按钮/挂载位，具体字段实现仍复用 `ui/fields/*`；已补 field/help/reference unmount 级联清理 |
 | `ui/fields/check.js` | checkbox/oneway 字段实现 | 已迁移 | `modules/ui/vue/CheckFieldInput.vue` | Vue 驱动 checkbox 与 reverser 外壳 |
 | `ui/fields/textarea.js` | textarea 字段实现 | 已迁移 | `modules/ui/vue/TextareaFieldInput.vue` | Vue 驱动 textarea 外壳与长度提示挂载位 |
 | `ui/fields/input.js` | text/number/url/date 等字段实现 | 部分迁移 | `modules/ui/vue/InputFieldShell.vue` | Vue 管理基础输入壳层，复杂附属控件仍复用 d3 |
+| `ui/fields/combo.js` | combo/multiCombo/semiCombo/typeCombo 字段实现 | 部分迁移 | `modules/ui/vue/ComboFieldShell.vue` | Vue 管理输入壳层，combobox/taginfo/chip/拖拽逻辑继续复用 d3 |
+| `ui/fields/address.js` | address 地址字段实现 | 部分迁移 | `modules/ui/vue/AddressFieldShell.vue` | Vue 管理 address 外层容器壳层，国家格式和下拉逻辑仍复用 d3 |
+| `ui/fields/localized.js` | localized 名称字段实现 | 部分迁移 | `modules/ui/vue/LocalizedFieldShell.vue` | Vue 管理主输入/添加按钮/多语言容器壳层，多语言 entry 仍复用 d3 |
+| `ui/fields/lanes.js` | lanes 车道示意字段实现 | 部分迁移 | `modules/ui/vue/LanesFieldShell.vue` | Vue 管理 SVG 挂载壳层，车道图形绘制仍复用 d3 |
+| `ui/fields/restrictions.js` | restrictions 转向限制字段实现 | 部分迁移 | `modules/ui/vue/RestrictionsFieldShell.vue` | Vue 管理 viewer/controls 容器壳层，交互逻辑和 SVG 渲染仍复用 d3 |
+| `ui/fields/access.js` | access 通行权限字段实现 | 部分迁移 | `modules/ui/vue/AccessFieldShell.vue` | Vue 管理 access 行列表壳层，combobox/placeholder 推导逻辑仍复用 d3 |
+| `ui/fields/wikipedia.js` | wikipedia 维基百科字段实现 | 部分迁移 | `modules/ui/vue/WikipediaFieldShell.vue` | Vue 管理语言/标题/外链壳层，标题建议与 wikidata 联动仍复用 d3 |
+| `ui/fields/wikidata.js` | wikidata 维基数据字段实现 | 部分迁移 | `modules/ui/vue/WikidataFieldShell.vue` | Vue 管理搜索行、说明/标识展示和复制按钮壳层，搜索与实体回填仍复用 d3 |
+| `ui/fields/directional_combo.js` | directional combo 定向组合字段实现 | 部分迁移 | `modules/ui/vue/DirectionalComboFieldShell.vue` | Vue 管理左右向行壳层和 combo 挂载位，定向标签归并与写回逻辑仍复用 d3 |
+| `ui/fields/radio.js` | radio / structureRadio 字段实现 | 部分迁移 | `modules/ui/vue/RadioFieldShell.vue` | Vue 管理单选项列表、placeholder 与 structure extras 壳层，选中逻辑和嵌套子字段仍复用 d3 |
 | `ui/fields/roadspeed.js` | 道路限速字段实现 | 已迁移 | `modules/ui/vue/RoadspeedFieldInput.vue` | Vue 驱动限速输入壳层与单位输入 |
 | `ui/fields/roadheight.js` | 道路限高字段实现 | 已迁移 | `modules/ui/vue/RoadheightFieldInput.vue` | Vue 驱动限高输入壳层与双单位输入 |
 | `uiPresetIcon` | 预设图标渲染器 | 部分迁移 | `modules/ui/vue/PresetIconShell.vue` | Vue 承载图标挂载壳层，具体 SVG/图像绘制仍复用原逻辑 |
 | `uiSectionSelectionList` | Inspector 中的多选列表区块 | 已迁移 | `modules/ui/vue/SelectionListSection.vue` | Vue 驱动多选实体列表 |
 | `uiSectionEntityIssues` | Inspector 中的实体问题区块 | 已迁移 | `modules/ui/vue/EntityIssuesSection.vue` | Vue 驱动问题列表、fix 按钮、reference 展开 |
-| `uiSectionRawTagEditor` | Raw Tag Editor 区块 | 部分迁移 | `modules/ui/vue/RawTagEditorShell.vue` | Vue 管理 view/text/list 壳层，行级编辑逻辑仍复用 d3 |
-| `uiSectionRawMemberEditor` | Relation 成员编辑区块 | 部分迁移 | `modules/ui/vue/MemberEditorShell.vue` | Vue 管理成员列表壳层，行级编辑/拖拽仍复用 d3 |
-| `uiSectionRawMembershipEditor` | Relation 归属编辑区块 | 部分迁移 | `modules/ui/vue/MembershipEditorShell.vue` | Vue 管理成员归属列表与 add-row 壳层，行级逻辑仍复用 d3 |
+| `uiSectionRawTagEditor` | Raw Tag Editor 区块 | 部分迁移 | `modules/ui/vue/RawTagEditorShell.vue` | Vue 管理 view/text/list 壳层，行级编辑逻辑仍复用 d3；已补 `section.unmount()` 生命周期清理 |
+| `uiSectionRawMemberEditor` | Relation 成员编辑区块 | 部分迁移 | `modules/ui/vue/MemberEditorShell.vue` | Vue 管理成员列表壳层，行级编辑/拖拽仍复用 d3；已补 `section.unmount()` 生命周期清理 |
+| `uiSectionRawMembershipEditor` | Relation 归属编辑区块 | 部分迁移 | `modules/ui/vue/MembershipEditorShell.vue` | Vue 管理成员归属列表与 add-row 壳层，行级逻辑仍复用 d3；已补 `section.unmount()` 生命周期清理 |
 | `uiSectionPrivacy` | 设置中的隐私区块 | 已迁移 | `modules/ui/vue/PrivacySection.vue` | Vue 驱动第三方图标隐私设置 |
-| `uiSectionMapFeatures` | Map Features 区块 | 已迁移 | `modules/ui/vue/MapFeaturesSection.vue` | Vue 驱动 feature toggle 列表 |
+| `uiSectionMapFeatures` | Map Features 区块 | 已迁移 | `modules/ui/vue/MapFeaturesSection.vue` | Vue 驱动 feature toggle 列表；已补 section lifecycle cleanup |
 | `uiSectionMapStyleOptions` | Map Style Options 区块 | 已迁移 | `modules/ui/vue/MapStyleOptionsSection.vue` | Vue 驱动面填充/高亮编辑选项 |
-| `uiSectionValidationStatus` | Validation 状态区块 | 已迁移 | `modules/ui/vue/ValidationStatusSection.vue` | Vue 驱动“无问题/隐藏问题/重置忽略”状态展示 |
+| `uiSectionValidationStatus` | Validation 状态区块 | 已迁移 | `modules/ui/vue/ValidationStatusSection.vue` | Vue 驱动“无问题/隐藏问题/重置忽略”状态展示；已补 section lifecycle cleanup |
 | `uiSectionChanges` | Changes 区块 | 已迁移 | `modules/ui/vue/ChangesSection.vue` | Vue 驱动 changes 列表与下载链接 |
-| `uiSectionBackgroundDisplayOptions` | Background Display Options 区块 | 已迁移 | `modules/ui/vue/BackgroundDisplayOptionsSection.vue` | Vue 驱动亮度/对比度/饱和度/锐化滑块 |
+| `uiSectionBackgroundDisplayOptions` | Background Display Options 区块 | 已迁移 | `modules/ui/vue/BackgroundDisplayOptionsSection.vue` | Vue 驱动亮度/对比度/饱和度/锐化滑块；已补 section lifecycle cleanup |
 | `uiSectionBackgroundOffset` | Background Offset 区块 | 已迁移 | `modules/ui/vue/BackgroundOffsetSection.vue` | Vue 驱动偏移输入、nudge 按钮和 reset UI |
-| `uiSectionValidationOptions` | Validation Options 区块 | 已迁移 | `modules/ui/vue/ValidationOptionsSection.vue` | Vue 驱动 what/where 过滤选项 |
-| `uiSectionValidationRules` | Validation Rules 区块 | 已迁移 | `modules/ui/vue/ValidationRulesSection.vue` | Vue 驱动规则列表与 unsquare 阈值输入 |
+| `uiSectionValidationOptions` | Validation Options 区块 | 已迁移 | `modules/ui/vue/ValidationOptionsSection.vue` | Vue 驱动 what/where 过滤选项；已补 section lifecycle cleanup |
+| `uiSectionValidationRules` | Validation Rules 区块 | 已迁移 | `modules/ui/vue/ValidationRulesSection.vue` | Vue 驱动规则列表与 unsquare 阈值输入；已补 section lifecycle cleanup |
 | `uiSectionValidationIssues` | Validation Issues 区块 | 已迁移 | `modules/ui/vue/ValidationIssuesSection.vue` | Vue 驱动 severity issue 列表 |
-| `uiFieldHelp` | 字段帮助面板 | 未迁移 | - | 仍是 d3 弹层逻辑 |
-| `uiPresetIcon` | 预设图标渲染器 | 未迁移 | - | SVG 图标绘制复杂 |
-
-
 ## 外链 / 跳转类组件
 
 | 组件 | 页面位置 | 状态 | Vue 文件 | 说明 |
@@ -135,7 +141,7 @@
 | `uiEntityEditor` | 实体编辑壳层 | 已迁移 | `modules/ui/vue/EntityEditorShell.vue` | Vue 管理 header/body 壳层，section 仍复用 d3 |
 | `uiField` | 表单字段 | 未迁移 | 后续重构重点 |
 | `uiFormFields` | 表单字段组 | 未迁移 | 后续重构重点 |
-| `uiPresetList` | 预设列表 | 未迁移 | 后续重构重点 |
+| `uiPresetList` | 预设列表 | 部分迁移 | `modules/ui/vue/PresetListShell.vue`, `modules/ui/vue/PresetListEntry.vue`, `modules/ui/vue/PresetListCategory.vue` | Vue 已接管 shell/entry/category；补充 item 缓存与重绘复用，稳定 current/disabled 等状态更新 |
 | `uiDataEditor` | 数据编辑器 | 已迁移 | `modules/ui/vue/DataEditorPanel.vue` | Vue 壳层 + 复用 d3 raw tag editor |
 | `uiNoteEditor` | Note 编辑器 | 已迁移 | `modules/ui/vue/NoteEditorPanel.vue` | Vue 壳层 + 复用已迁 header/comments/footer 组件 |
 | `uiKeepRightEditor` | KeepRight 编辑器 | 已迁移 | `modules/ui/vue/KeepRightEditorPanel.vue` | Vue 壳层 + 复用已迁 header/details/footer 组件 |
